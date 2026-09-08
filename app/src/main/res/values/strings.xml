@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Daydream VR Player</string>
+    <string name="setup_title">Daydream VR Player</string>
+    <string name="setup_subtitle">Put your phone in the viewer, then press Enter VR (or the A button on your gamepad).</string>
+    <string name="enter_vr">Enter VR</string>
+    <string name="gamepad_status_none">No gamepad connected</string>
+    <string name="gamepad_status_connected">Gamepad connected: %1$s</string>
+    <string name="debug_overlay_waiting">Gamepad debug overlay\nWaiting for input…</string>
+</resources>

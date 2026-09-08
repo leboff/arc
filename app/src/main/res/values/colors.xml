@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ARCHITECTURE.md §11.3: light text on a dark translucent panel; the world
+         clear colour is pure black so the centre divider stays black. -->
+    <color name="vr_black">#FF000000</color>
+    <color name="panel_background">#DD0A0A0C</color>
+    <color name="panel_text">#FFE8E8EA</color>
+    <color name="panel_text_dim">#FF9A9AA0</color>
+    <color name="setup_background">#FFFAFAFA</color>
+    <color name="setup_accent">#FF3949AB</color>
+</resources>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DLNA is HTTP/1.1 without TLS (ARCHITECTURE.md §16), so cleartext must be
+  permitted. This cannot be scoped to a subnet — domain-config takes hostnames,
+  not CIDR ranges. The "block non-private IPs" guard lives in :upnp (Phase 3).
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
