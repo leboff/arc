@@ -341,8 +341,11 @@ fun recenter() {
     // swing-twist: extract the component of R_W_H about the world up axis (+Y)
     val f = rWH * Vector3(0f, 0f, -1f)             // current gaze direction
     val yaw = atan2(f.x, -f.z)                     // 0 = looking down -Z
-    targetRecenter = quatFromAxisAngle(UP, -yaw)   // cancels the current yaw
+    targetRecenter = quatFromAxisAngle(UP, yaw)    // cancels the current yaw
 }
+// NOTE (Phase 2): the sign is `+yaw` for this codebase's Hamilton /
+// active-rotation `Quat` (`q ⊗ p` = "apply p then q"); a `-yaw` here rotates the
+// world the wrong way. Pinned by RecenterTest's "gaze flattens to −Z" invariant.
 
 // applied every frame:
 recenterQ = slerp(recenterQ, targetRecenter, 1f - exp(-dt / TAU))   // TAU = 0.06 s

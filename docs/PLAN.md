@@ -194,20 +194,47 @@ class GamepadDecoder(
 ### 2.1 Files
 
 ```
-vrcore/src/main/java/com/daydreamvr/vrcore/math/VrMath.kt
+vrcore/src/main/java/com/daydreamvr/vrcore/math/Matrix4.kt            # (was VrMath.kt)
 vrcore/src/main/java/com/daydreamvr/vrcore/math/Quaternion.kt
-vrcore/src/main/java/com/daydreamvr/vrcore/tracking/HeadPose.kt
-vrcore/src/main/java/com/daydreamvr/vrcore/tracking/PoseRingBuffer.kt
+vrcore/src/main/java/com/daydreamvr/vrcore/tracking/HeadPose.kt       # PoseSample, SensorKind
 vrcore/src/main/java/com/daydreamvr/vrcore/tracking/FrameConverter.kt
-vrcore/src/main/java/com/daydreamvr/vrcore/tracking/HeadTracker.kt
-vrcore/src/main/java/com/daydreamvr/vrcore/tracking/SensorHeadTracker.kt
+vrcore/src/main/java/com/daydreamvr/vrcore/tracking/RecenterController.kt
 vrcore/src/main/java/com/daydreamvr/vrcore/tracking/PosePredictor.kt
-vrcore/src/main/java/com/daydreamvr/vrcore/render/EnvironmentScene.kt   # dark room + grid
+vrcore/src/main/java/com/daydreamvr/vrcore/tracking/HeadTracker.kt    # HeadTracker + SensorHeadTracker
 vrcore/src/test/java/com/daydreamvr/vrcore/math/QuaternionTest.kt
 vrcore/src/test/java/com/daydreamvr/vrcore/tracking/FrameConverterTest.kt
 vrcore/src/test/java/com/daydreamvr/vrcore/tracking/RecenterTest.kt
 vrcore/src/test/java/com/daydreamvr/vrcore/tracking/PosePredictorTest.kt
 ```
+
+**Deviations from the original file list (Phase 2 implementation):**
+
+- `math/VrMath.kt` → `math/Matrix4.kt`. Pure column-major 4×4 helpers; the
+  quaternion math lives in `Quaternion.kt` and there was nothing left for a
+  separate `VrMath`.
+- `PoseRingBuffer.kt` dropped. `SensorHeadTracker` keeps the two samples the
+  predictor needs (`latest`/`previous` `AtomicReference`s); a full ring buffer
+  buys nothing until 6DOF or replay debugging, which are v2.
+- `SensorHeadTracker` folded into `HeadTracker.kt` alongside the interface
+  (one file, per the Phase 2 task brief).
+- `RecenterController.kt` added: the yaw-only recentre + slew filter is pulled
+  out of `SensorHeadTracker` so it is unit-testable in pure JVM (`RecenterTest`).
+- `render/EnvironmentScene.kt` **deferred to Phase 4** (see backlog). The Phase 1
+  `DebugCubeScene` (a cube at a fixed world position) already demonstrates 3DOF
+  and gravity-referencing; a lit environment sphere is cosmetic and belongs with
+  the cinema screen work.
+
+### 2.5 Phase 2 backlog
+
+- **`SensorKind.ACCEL_MAG` fusion fallback.** `SensorHeadTracker` currently
+  selects `GAME_ROTATION_VECTOR` → `ROTATION_VECTOR` → `NONE`. The accelerometer
+  + magnetometer last-ditch path (ARCHITECTURE.md §7.1) is not wired; the
+  manifest already requires a gyroscope, so every target device has at least
+  `ROTATION_VECTOR`. Add when a no-gyro device actually needs supporting.
+- **`EnvironmentScene`** (dark room + floor grid), moved to Phase 4 with the
+  cinema-screen geometry.
+- **Instrumented `SensorHeadTrackerTest`** (cross-check `FrameConverter` against
+  the real `SensorManager` calls) still to be written — needs a device/emulator.
 
 ### 2.2 Signatures
 

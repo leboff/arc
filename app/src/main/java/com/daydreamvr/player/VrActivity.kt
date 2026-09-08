@@ -25,7 +25,9 @@ import com.daydreamvr.player.input.toRawKey
 import com.daydreamvr.player.input.toRawMotion
 import com.daydreamvr.player.render.DebugCubeScene
 import com.daydreamvr.vrcore.input.GamepadDecoder
+import com.daydreamvr.vrcore.input.InputAction
 import com.daydreamvr.vrcore.render.VrRenderer
+import com.daydreamvr.vrcore.tracking.SensorHeadTracker
 import kotlinx.coroutines.launch
 
 /**
@@ -38,7 +40,11 @@ class VrActivity : ComponentActivity() {
     private lateinit var glSurfaceView: GLSurfaceView
     private lateinit var renderer: VrRenderer
     private lateinit var decoder: GamepadDecoder
+    private lateinit var headTracker: SensorHeadTracker
     private val overlay = DebugOverlay()
+
+    /** Reused every frame by the pose provider — read only on the GL thread. */
+    private val poseBuffer = FloatArray(16)
 
     private lateinit var leftEyeText: TextView
     private lateinit var rightEyeText: TextView
@@ -72,17 +78,26 @@ class VrActivity : ComponentActivity() {
 
         val container = (application as PlayerApp).container
 
+        headTracker = SensorHeadTracker(
+            context = this,
+            displayRotationProvider = ::currentDisplayRotation,
+            clockNs = System::nanoTime,
+        )
+
         decoder = GamepadDecoder(
             bindings = container.inputBindings,
             resolver = container.gamepadProfileResolver,
             clock = System::nanoTime,
-            emit = { action -> runOnUiThread { overlay.onAction(action) } },
+            emit = ::onInputAction,
         )
 
         renderer = VrRenderer(
             scene = DebugCubeScene(),
             profileProvider = { container.deviceProfile },
-            poseProvider = { IDENTITY_POSE },
+            poseProvider = {
+                headTracker.poseFor(System.nanoTime() + PREDICT_AHEAD_NS, poseBuffer)
+                poseBuffer
+            },
         ).apply {
             val metrics = resources.displayMetrics
             displayWidthM = (metrics.widthPixels / metrics.xdpi * INCH_TO_M).coerceIn(0.05f, 0.20f)
@@ -149,6 +164,17 @@ class VrActivity : ComponentActivity() {
         }
     }
 
+    /** Sink for every decoded [InputAction]; also drives head-tracker side effects. */
+    private fun onInputAction(action: InputAction) {
+        headTracker.onUserActivity()
+        if (action is InputAction.Recenter) headTracker.recenter()
+        runOnUiThread { overlay.onAction(action) }
+    }
+
+    @Suppress("DEPRECATION") // display?.rotation is API 30+; minSdk is 29.
+    private fun currentDisplayRotation(): Int =
+        (display ?: windowManager.defaultDisplay).rotation
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (decoder.handleKey(event.toRawKey())) return true
         return super.dispatchKeyEvent(event)
@@ -163,6 +189,7 @@ class VrActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        headTracker.start()
         glSurfaceView.onResume()
         Choreographer.getInstance().postFrameCallback(frameCallback)
     }
@@ -171,6 +198,7 @@ class VrActivity : ComponentActivity() {
         super.onPause()
         Choreographer.getInstance().removeFrameCallback(frameCallback)
         glSurfaceView.onPause()
+        headTracker.stop()
     }
 
     override fun onDestroy() {
@@ -199,11 +227,11 @@ class VrActivity : ComponentActivity() {
     private companion object {
         const val INCH_TO_M = 0.0254f
 
-        val IDENTITY_POSE = floatArrayOf(
-            1f, 0f, 0f, 0f,
-            0f, 1f, 0f, 0f,
-            0f, 0f, 1f, 0f,
-            0f, 0f, 0f, 1f,
-        )
+        /**
+         * Photon-time lookahead for pose prediction (ARCHITECTURE.md §7.4):
+         * ~32 ms display latency + ~11 ms for one 90 Hz frame. [PosePredictor]
+         * re-clamps to 50 ms.
+         */
+        const val PREDICT_AHEAD_NS = 43_000_000L
     }
 }
