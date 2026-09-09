@@ -155,9 +155,10 @@ class ExoVideoPlayer(
         val dataSourceFactory = DefaultDataSource.Factory(context, httpFactory)
 
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(30_000, 120_000, 2_500, 5_000)
-            .setPrioritizeTimeOverSizeThresholds(true)
-            .setBackBuffer(30_000, true)
+            .setBufferDurationsMs(15_000, 30_000, 1_500, 3_000)
+            .setTargetBufferBytes(32 * 1024 * 1024)
+            .setPrioritizeTimeOverSizeThresholds(false)
+            .setBackBuffer(0, false)
             .build()
 
         player = ExoPlayer.Builder(context)
