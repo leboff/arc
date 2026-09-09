@@ -4,36 +4,30 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.util.Log
 import com.daydreamvr.upnp.net.DatagramChannelProvider
 import com.daydreamvr.upnp.ssdp.SsdpClient
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeoutOrNull
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.MulticastSocket
 import java.net.NetworkInterface
-import kotlin.coroutines.resume
 
 /**
- * The Android side of the `DatagramChannelProvider` seam (ARCHITECTURE.md §9.2).
+ * The Android side of the [DatagramChannelProvider] seam (ARCHITECTURE.md §9.2).
  * For the duration of [withMulticastSocket] it:
  *
- *  1. holds a `WifiManager` MulticastLock (without it the Wi-Fi chip filters
+ *  1. holds a [WifiManager.MulticastLock] (without it the Wi-Fi chip filters
  *     multicast frames and discovery silently returns nothing);
- *  2. requests and binds to the Wi-Fi `Network`, so an unbound socket cannot
- *     egress via cellular when mobile data is up;
- *  3. joins `239.255.255.250:1900` on the Wi-Fi `NetworkInterface`.
+ *  2. resolves the active Wi-Fi interface (preferring wlan/eth over cellular);
+ *  3. binds an ephemeral [MulticastSocket] with broadcast enabled and joins
+ *     the SSDP multicast group on the Wi-Fi interface.
  *
- * All three are released/closed before returning, even on failure — checked by
- * `UpnpSmokeTest` and the "no lock leak across 20 discovery cycles" criterion.
+ * All resources are released/closed before returning.
  */
 class AndroidNetworkBinder(
     context: Context,
-    private val networkRequestTimeoutMs: Long = 4_000L,
+    private val networkRequestTimeoutMs: Long = 2_000L,
 ) : DatagramChannelProvider {
 
     private val appContext = context.applicationContext
@@ -46,38 +40,32 @@ class AndroidNetworkBinder(
         block: suspend (MulticastSocket, NetworkInterface) -> T,
     ): T {
         val lock = wifiManager.createMulticastLock(MULTICAST_LOCK_TAG).apply {
-            setReferenceCounted(true)
-            acquire()
+            setReferenceCounted(false)
+            runCatching { acquire() }
         }
 
         var released = false
         var socket: MulticastSocket? = null
-        var networkCallback: ConnectivityManager.NetworkCallback? = null
 
         try {
-            val (network, callback) = requestWifiNetwork()
-            networkCallback = callback
+            val network = findWifiNetwork()
             val nif = wifiNetworkInterface(network)
                 ?: firstMulticastInterface()
                 ?: error("no multicast-capable network interface")
 
+            Log.i(TAG, "Opening multicast socket on interface: ${nif.name} (display: ${nif.displayName}) network=$network")
+
             val group = InetAddress.getByName(SsdpClient.GROUP)
-            socket = runCatching {
-                MulticastSocket(null).apply {
-                    reuseAddress = true
-                    bind(InetSocketAddress(SsdpClient.PORT))
-                }
-            }.getOrElse {
-                Log.w(TAG, "failed to bind multicast port 1900, falling back to ephemeral port", it)
-                MulticastSocket(null).apply {
-                    reuseAddress = true
-                    bind(null)
-                }
-            }.apply {
+            socket = MulticastSocket(null).apply {
+                reuseAddress = true
+                broadcast = true
+                // Bind to ephemeral port: UPnP M-SEARCH responses are unicast to the sender's source port.
+                // Binding port 1900 breaks unicast reception on Android due to system/Play Services conflicts.
+                bind(null)
                 soTimeout = POLL_TIMEOUT_MS
-                network?.bindSocket(this)
-                runCatching { networkInterface = nif }
                 timeToLive = 4
+                network?.let { net -> runCatching { net.bindSocket(this) } }
+                runCatching { networkInterface = nif }
                 runCatching { joinGroup(InetSocketAddress(group, SsdpClient.PORT), nif) }
             }
 
@@ -85,74 +73,64 @@ class AndroidNetworkBinder(
         } finally {
             socket?.let { s ->
                 runCatching {
-                    s.leaveGroup(
-                        InetSocketAddress(InetAddress.getByName(SsdpClient.GROUP), SsdpClient.PORT),
-                        wifiNetworkInterface(null),
-                    )
+                    val group = InetAddress.getByName(SsdpClient.GROUP)
+                    val nif = wifiNetworkInterface(null)
+                    s.leaveGroup(InetSocketAddress(group, SsdpClient.PORT), nif)
                 }
                 runCatching { s.close() }
             }
-            networkCallback?.let { runCatching { connectivityManager.unregisterNetworkCallback(it) } }
             if (!released && lock.isHeld) {
-                lock.release()
+                runCatching { lock.release() }
                 released = true
             }
         }
     }
 
-    /** @return the Wi-Fi [Network] (or null if none arrived in time) plus the callback to unregister. */
-    private suspend fun requestWifiNetwork(): Pair<Network?, ConnectivityManager.NetworkCallback?> {
-        var callback: ConnectivityManager.NetworkCallback? = null
-        val network = try {
-            withTimeoutOrNull(networkRequestTimeoutMs) {
-                suspendCancellableCoroutine<Network?> { cont ->
-                    val request = NetworkRequest.Builder()
-                        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-                        .build()
-                    val cb = object : ConnectivityManager.NetworkCallback() {
-                        override fun onAvailable(available: Network) {
-                            if (cont.isActive) cont.resume(available)
-                        }
-                    }
-                    callback = cb
-                    val requested = runCatching { connectivityManager.requestNetwork(request, cb) }
-                    if (requested.isFailure) {
-                        Log.w(TAG, "connectivityManager.requestNetwork failed", requested.exceptionOrNull())
-                        if (cont.isActive) cont.resume(null)
-                    }
-                    cont.invokeOnCancellation {
-                        runCatching { connectivityManager.unregisterNetworkCallback(cb) }
-                    }
-                }
+    /**
+     * Finds the active Wi-Fi [Network] immediately without waiting for an asynchronous callback.
+     */
+    private fun findWifiNetwork(): Network? {
+        val active = runCatching { connectivityManager.activeNetwork }.getOrNull()
+        if (active != null) {
+            val caps = runCatching { connectivityManager.getNetworkCapabilities(active) }.getOrNull()
+            if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
+                return active
             }
-        } catch (_: TimeoutCancellationException) {
-            null
         }
-        if (network == null) {
-            callback?.let { runCatching { connectivityManager.unregisterNetworkCallback(it) } }
-            callback = null
-            Log.w(TAG, "no Wi-Fi network bound; SSDP will use the default route")
-        }
-        return network to callback
+        return runCatching {
+            connectivityManager.allNetworks.firstOrNull { net ->
+                connectivityManager.getNetworkCapabilities(net)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            }
+        }.getOrNull() ?: active
     }
 
     private fun wifiNetworkInterface(network: Network?): NetworkInterface? {
-        val linkProperties = network?.let { connectivityManager.getLinkProperties(it) }
+        val linkProperties = network?.let { runCatching { connectivityManager.getLinkProperties(it) }.getOrNull() }
         val ifName = linkProperties?.interfaceName
         if (ifName != null) {
-            runCatching { NetworkInterface.getByName(ifName) }.getOrNull()?.let { return it }
+            val nif = runCatching { NetworkInterface.getByName(ifName) }.getOrNull()
+            if (nif != null && nif.isUp) return nif
         }
         return firstMulticastInterface()
     }
 
+    /**
+     * Scans interfaces and strongly prefers Wi-Fi (wlan*) or Ethernet (eth*), avoiding
+     * cellular interfaces (rmnet*) which can steal multicast packets on phones.
+     */
     private fun firstMulticastInterface(): NetworkInterface? =
         runCatching {
-            NetworkInterface.getNetworkInterfaces().toList().firstOrNull { nif ->
+            val all = NetworkInterface.getNetworkInterfaces().toList()
+            val upAndMulticast = all.filter { nif ->
                 runCatching {
                     nif.isUp && !nif.isLoopback && nif.supportsMulticast() &&
                         nif.inetAddresses.asSequence().any { it.address.size == 4 }
                 }.getOrDefault(false)
             }
+            upAndMulticast.firstOrNull { it.name.startsWith("wlan", ignoreCase = true) }
+                ?: upAndMulticast.firstOrNull { it.name.startsWith("eth", ignoreCase = true) }
+                ?: upAndMulticast.firstOrNull { !it.name.startsWith("rmnet", ignoreCase = true) && !it.name.startsWith("dummy", ignoreCase = true) }
+                ?: upAndMulticast.firstOrNull()
         }.getOrNull()
 
     private companion object {

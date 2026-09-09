@@ -57,7 +57,14 @@ class MediaServerDirectoryImpl(
                 else -> {
                     val location = message.location?.let { runCatching { URI(it) }.getOrNull() } ?: return@collect
                     scope.launch {
-                        fetchDescription(location).onSuccess(::upsert)
+                        fetchDescription(location)
+                            .onSuccess { srv ->
+                                log.d("Directory", "Discovered: ${srv.friendlyName} ($location)")
+                                upsert(srv)
+                            }
+                            .onFailure { err ->
+                                log.w("Directory", "Failed to parse $location: ${err.message}", err)
+                            }
                     }
                 }
             }
@@ -71,7 +78,7 @@ class MediaServerDirectoryImpl(
         } else {
             val base = baseUriOf(trimmed)
                 ?: return Result.failure(UpnpError.NotAMediaServer("cannot parse host:port '$hostPort'"))
-            probePaths(base)
+            probeCandidates(trimmed, base)
         }
         return direct.onSuccess(::upsert)
     }
@@ -81,17 +88,32 @@ class MediaServerDirectoryImpl(
 
     // ---- internals ------------------------------------------------------------
 
-    private suspend fun probePaths(base: URI): Result<MediaServer> = coroutineScope {
-        val attempts = PROBE_PATHS.map { path ->
-            async {
-                withTimeoutOrNull(PROBE_BUDGET_MS) {
-                    fetchDescription(base.resolve(path)).getOrNull()
+    private suspend fun probeCandidates(input: String, defaultBase: URI): Result<MediaServer> = coroutineScope {
+        val hasPort = input.removePrefix("http://").removePrefix("https://").contains(":")
+        val baseUris = if (hasPort) {
+            listOf(defaultBase)
+        } else {
+            val host = defaultBase.host
+            listOfNotNull(
+                defaultBase,
+                host?.let { URI("http://$it:49152/") }, // Gerbera default
+                host?.let { URI("http://$it:8200/") },  // MiniDLNA
+                host?.let { URI("http://$it:32469/") }, // Plex DLNA
+                host?.let { URI("http://$it:8096/") },  // Jellyfin / Emby
+            )
+        }
+        val attempts = baseUris.flatMap { b ->
+            PROBE_PATHS.map { path ->
+                async {
+                    withTimeoutOrNull(PROBE_BUDGET_MS) {
+                        fetchDescription(b.resolve(path)).getOrNull()
+                    }
                 }
             }
         }
         val found = attempts.awaitAll().firstOrNull { it != null }
         found?.let { Result.success(it) }
-            ?: Result.failure(UpnpError.NotAMediaServer("no MediaServer under $base"))
+            ?: Result.failure(UpnpError.NotAMediaServer("no MediaServer under $input"))
     }
 
     private suspend fun fetchDescription(location: URI): Result<MediaServer> = runCatching {
@@ -140,6 +162,6 @@ class MediaServerDirectoryImpl(
             "/",
         )
 
-        private const val PROBE_BUDGET_MS = 1_500L
+        private const val PROBE_BUDGET_MS = 4_000L
     }
 }

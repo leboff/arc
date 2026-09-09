@@ -46,6 +46,13 @@ class SsdpClient(
             channels.withMulticastSocket { socket, nif ->
                 val group = InetAddress.getByName(GROUP)
                 val seenUsn = HashSet<String>()
+                val broadcastTargets = listOfNotNull(
+                    group,
+                    runCatching { InetAddress.getByName("255.255.255.255") }.getOrNull(),
+                    runCatching {
+                        nif.interfaceAddresses.firstOrNull { it.broadcast != null }?.broadcast
+                    }.getOrNull(),
+                ).distinct()
 
                 val sender = launch {
                     var previousOffset = 0L
@@ -54,9 +61,11 @@ class SsdpClient(
                         previousOffset = offset
                         for (target in searchTargets) {
                             val bytes = SsdpMessage.buildSearchRequest(target, mxSeconds)
-                            runCatching {
-                                socket.send(DatagramPacket(bytes, bytes.size, group, PORT))
-                            }.onFailure { log.w(TAG, "M-SEARCH send failed", it) }
+                            for (dest in broadcastTargets) {
+                                runCatching {
+                                    socket.send(DatagramPacket(bytes, bytes.size, dest, PORT))
+                                }.onFailure { log.w(TAG, "M-SEARCH send to $dest failed", it) }
+                            }
                         }
                     }
                 }
@@ -73,14 +82,21 @@ class SsdpClient(
                         }
                         val text = String(packet.data, 0, packet.length, Charsets.UTF_8)
                         val message = SsdpMessage.parse(text, packet.address?.hostAddress) ?: continue
+                        log.d(TAG, "SSDP message parsed: ${message.kind} from ${packet.address}:${packet.port} location=${message.location}")
                         when (message.kind) {
                             SsdpMessage.Kind.SEARCH_RESPONSE -> {
                                 val usn = message.usn ?: continue
-                                if (seenUsn.add(usn)) trySend(message)
+                                if (seenUsn.add(usn)) {
+                                    log.d(TAG, "Emitting search response: ${message.location} (usn=$usn)")
+                                    trySend(message)
+                                }
                             }
                             SsdpMessage.Kind.NOTIFY_ALIVE,
                             SsdpMessage.Kind.NOTIFY_BYEBYE,
-                            -> trySend(message)
+                            -> {
+                                log.d(TAG, "Emitting NOTIFY: ${message.location}")
+                                trySend(message)
+                            }
                             else -> Unit
                         }
                     }

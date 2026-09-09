@@ -6,46 +6,125 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 
 /**
- * The pre-flight "lobby" (ARCHITECTURE.md §11.6) — the one 2D touch screen,
- * shown before the phone goes in the viewer. Phase 1 is a stub: a title, a hint,
- * and one big **Enter VR** button that any gamepad `A` also activates.
+ * The pre-flight "lobby" (ARCHITECTURE.md §11.6) — the 2D touch screen shown
+ * before the phone goes in the viewer. Displays discovery status, discovered servers,
+ * an input field to add/test a server IP with touch, and the "Enter VR" button.
  */
 class SetupActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val padding = (resources.displayMetrics.density * 24).toInt()
+        val container = (application as PlayerApp).container
+        val padding = (resources.displayMetrics.density * 20).toInt()
 
         val title = TextView(this).apply {
             setText(R.string.setup_title)
             textSize = 24f
+            gravity = Gravity.CENTER
         }
         val subtitle = TextView(this).apply {
             setText(R.string.setup_subtitle)
-            textSize = 14f
-            setPadding(0, padding, 0, padding * 2)
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setPadding(0, padding / 2, 0, padding)
         }
+
+        val serverStatus = TextView(this).apply {
+            text = "Searching local network for UPnP servers…"
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, padding / 2)
+        }
+
+        val manualInput = EditText(this).apply {
+            hint = "192.168.50.10:49152"
+            setText("192.168.50.10:49152")
+            textSize = 15f
+            setSingleLine()
+            layoutParams = LinearLayout.LayoutParams(
+                (resources.displayMetrics.density * 260).toInt(),
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { gravity = Gravity.CENTER_HORIZONTAL }
+        }
+
+        val addServerBtn = Button(this).apply {
+            text = "Connect / Test Server"
+            setOnClickListener {
+                val host = manualInput.text.toString().trim()
+                if (host.isNotEmpty()) {
+                    serverStatus.text = "Connecting to $host…"
+                    lifecycleScope.launch {
+                        container.mediaServerDirectory.addManual(host).fold(
+                            onSuccess = { srv ->
+                                runCatching { container.serverStore.remember(srv, manual = true) }
+                                serverStatus.text = "✓ Connected to ${srv.friendlyName} ($host)"
+                                Toast.makeText(this@SetupActivity, "Added ${srv.friendlyName}", Toast.LENGTH_SHORT).show()
+                            },
+                            onFailure = { err ->
+                                serverStatus.text = "✗ Failed: ${err.message}"
+                                Toast.makeText(this@SetupActivity, "Failed: ${err.message}", Toast.LENGTH_LONG).show()
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
         val enterVr = Button(this).apply {
             id = ENTER_VR_ID
             setText(R.string.enter_vr)
+            textSize = 16f
+            setPadding(padding, padding / 2, padding, padding / 2)
             setOnClickListener { enterVr() }
         }
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(padding * 2, padding * 2, padding * 2, padding * 2)
+            setPadding(padding, padding, padding, padding)
             addView(title, wrap())
             addView(subtitle, wrap())
+            addView(serverStatus, wrap())
+            addView(manualInput)
+            addView(addServerBtn, wrap())
+            addView(
+                TextView(this@SetupActivity).apply {
+                    setPadding(0, padding / 2, 0, padding / 2)
+                },
+                wrap(),
+            )
             addView(enterVr, wrap())
         }
         setContentView(layout)
+
+        // Observe discovered servers
+        lifecycleScope.launch {
+            container.mediaServerDirectory.servers.collect { list ->
+                if (list.isNotEmpty()) {
+                    val names = list.joinToString("\n") { "• ${it.friendlyName} (${it.descriptionUrl.host}:${it.descriptionUrl.port})" }
+                    serverStatus.text = "Discovered ${list.size} server(s):\n$names"
+                }
+            }
+        }
+
+        // Trigger discovery immediately in background
+        lifecycleScope.launch {
+            val known = runCatching { container.serverStore.descriptionUrls() }.getOrDefault(emptyList())
+            if (known.isNotEmpty()) {
+                runCatching { (container.mediaServerDirectory as? com.daydreamvr.upnp.MediaServerDirectoryImpl)?.reprobeKnown(known) }
+            }
+            container.mediaServerDirectory.discover()
+        }
 
         enterVr.requestFocus()
     }
