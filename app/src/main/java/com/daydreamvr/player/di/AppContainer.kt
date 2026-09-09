@@ -4,6 +4,7 @@ import android.content.Context
 import com.daydreamvr.player.data.ServerStore
 import com.daydreamvr.player.data.SettingsStore
 import com.daydreamvr.player.net.AndroidNetworkBinder
+import com.daydreamvr.player.media.local.LocalMediaRepository
 import com.daydreamvr.player.net.LogcatUpnpLog
 import com.daydreamvr.playback.DecoderCapsProvider
 import com.daydreamvr.playback.InMemoryResumeStore
@@ -68,4 +69,8 @@ class AppContainer(context: Context) {
     val resumeStore: InMemoryResumeStore = InMemoryResumeStore()
 
     val decoderCapsProvider: DecoderCapsProvider = DecoderCapsProvider()
+
+    // ---- Local media (UI_REDESIGN_REVIEWED_PLAN.md §8) ---------------------------
+
+    val localMediaRepository: LocalMediaRepository = LocalMediaRepository(appContext, appScope)
 }

@@ -9,6 +9,13 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- Local video enumeration only; no write access (UI_REDESIGN_REVIEWED_PLAN.md §8.2, §16). -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+
     <uses-feature
         android:name="android.hardware.sensor.gyroscope"
         android:required="true" />

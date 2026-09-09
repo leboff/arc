@@ -11,7 +11,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
+import com.daydreamvr.player.media.local.MediaPermission
 import kotlinx.coroutines.launch
 
 /**
@@ -20,6 +22,17 @@ import kotlinx.coroutines.launch
  * an input field to add/test a server IP with touch, and the "Enter VR" button.
  */
 class SetupActivity : ComponentActivity() {
+
+    private lateinit var mediaAccessRow: TextView
+
+    /**
+     * The runtime storage permission is requested **here only** — a system dialog
+     * raised from inside the headset is unreadable (UI_REDESIGN_REVIEWED_PLAN.md §8.2).
+     */
+    private val requestMediaAccess =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            refreshMediaAccessRow()
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -80,6 +93,24 @@ class SetupActivity : ComponentActivity() {
             }
         }
 
+        mediaAccessRow = TextView(this).apply {
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(0, padding / 2, 0, 0)
+        }
+        val grantMediaBtn = Button(this).apply {
+            text = "Allow access to videos on this phone"
+            setOnClickListener {
+                val perms = buildList {
+                    add(MediaPermission.required())
+                    if (android.os.Build.VERSION.SDK_INT >= 34) {
+                        add(android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+                    }
+                }.toTypedArray()
+                requestMediaAccess.launch(perms)
+            }
+        }
+
         val enterVr = Button(this).apply {
             id = ENTER_VR_ID
             setText(R.string.enter_vr)
@@ -97,6 +128,8 @@ class SetupActivity : ComponentActivity() {
             addView(serverStatus, wrap())
             addView(manualInput)
             addView(addServerBtn, wrap())
+            addView(mediaAccessRow, wrap())
+            addView(grantMediaBtn, wrap())
             addView(
                 TextView(this@SetupActivity).apply {
                     setPadding(0, padding / 2, 0, padding / 2)
@@ -106,6 +139,7 @@ class SetupActivity : ComponentActivity() {
             addView(enterVr, wrap())
         }
         setContentView(layout)
+        refreshMediaAccessRow()
 
         // Observe discovered servers
         lifecycleScope.launch {
@@ -140,6 +174,14 @@ class SetupActivity : ComponentActivity() {
 
     private fun enterVr() {
         startActivity(Intent(this, VrActivity::class.java))
+    }
+
+    private fun refreshMediaAccessRow() {
+        mediaAccessRow.text = when (MediaPermission.status(this)) {
+            MediaPermission.Grant.FULL -> "Videos on this phone: Granted"
+            MediaPermission.Grant.PARTIAL -> "Videos on this phone: Limited (selected items only)"
+            MediaPermission.Grant.DENIED -> "Videos on this phone: Not granted"
+        }
     }
 
     private fun wrap() = LinearLayout.LayoutParams(
