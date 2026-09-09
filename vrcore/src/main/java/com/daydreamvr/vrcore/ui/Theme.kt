@@ -47,6 +47,13 @@ class Theme {
     val hoverFill = 0x14FFFFFF
     val hoverStroke = 0x806FD8EC.toInt()
 
+    // ── Format badges (UI_REDESIGN_REVIEWED_PLAN.md §4) ────────
+    // Desaturated per the no-saturated-glyph rule — drawn as a 1.5 px stroke on a
+    // neutral chip, never as a coloured fill behind light text.
+    val badgeVr = 0xFF9FD8B8.toInt() // VR180 / VR360
+    val badge3d = 0xFFD8B89F.toInt() // SBS / TB
+    val badgeQuality = 0xFFB8B8D8.toInt() // 4K / HEVC
+
     // ── Status ─────────────────────────────────────────────────
     val watched = 0xFF8FD69F.toInt()
     val warning = 0xFFE8C56F.toInt()
