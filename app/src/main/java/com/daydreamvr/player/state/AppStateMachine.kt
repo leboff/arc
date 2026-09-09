@@ -1,5 +1,8 @@
 package com.daydreamvr.player.state
 
+import com.daydreamvr.player.media.MediaKey
+import com.daydreamvr.player.media.MediaSource
+import com.daydreamvr.player.media.local.MediaPermission
 import com.daydreamvr.player.screens.VrKeyboard
 import com.daydreamvr.upnp.model.DidlContainer
 import com.daydreamvr.upnp.model.DidlItem
@@ -44,6 +47,7 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
 
         const val TOAST_MS = 2_500L
         const val BROWSE_VISIBLE_ROWS = 8
+        const val SIDEBAR_VISIBLE_ROWS = 6
         const val PAGE_FETCH = 200
         const val SEEK_STEP_MS = 10_000L
 
@@ -74,6 +78,16 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             is Event.Input -> reduceInput(state, event.action)
             is Event.GazeMoved -> reduceGaze(state, event.target)
             is Event.ListWindowMeasured -> state.copy(listWindow = event.window) to noFx()
+            is Event.Ui -> reduceUi(state, event.intent)
+            is Event.LocalMediaLoaded -> reduceLocalMediaLoaded(state, event)
+            is Event.LocalMediaFailed -> reduceLocalMediaFailed(state, event)
+            is Event.LocalPermissionChanged ->
+                state.copy(sources = state.sources.copy(localPermission = event.grant)) to noFx()
+            is Event.LocalMediaChanged ->
+                if (state.sources.selectedId == MediaSource.Local.id) state to listOf(Effect.LoadLocalMedia)
+                else state to noFx()
+            is Event.ThumbnailsArrived ->
+                state.copy(thumbGeneration = state.thumbGeneration + 1) to noFx()
         }
 
         /**
@@ -133,8 +147,22 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                     } else {
                         s
                     }
+                is GazeTarget.SourceTab -> browseGazeFocus(state, s, BrowseFocus.Source(target.index))
+                is GazeTarget.SidebarRow -> browseGazeFocus(state, s, BrowseFocus.Sidebar(target.index))
+                is GazeTarget.GridCell -> browseGazeFocus(state, s, BrowseFocus.Grid(target.index))
+                is GazeTarget.InspectorAction -> browseGazeFocus(state, s, BrowseFocus.Inspector(target.action))
+                is GazeTarget.DockButton -> browseGazeFocus(state, s, BrowseFocus.Dock(target.button))
+                is GazeTarget.ToolbarChip -> browseGazeFocus(state, s, BrowseFocus.Toolbar(target.chip))
+                is GazeTarget.BreadcrumbSegment, is GazeTarget.PageButton -> s
                 is GazeTarget.DialogButton, is GazeTarget.KeyboardKey -> s
             } to noFx()
+        }
+
+        /** Gaze hover moves [BrowseFocus] only while the browse panel is the active surface (§10.4). */
+        private fun browseGazeFocus(state: AppState, s: AppState, focus: BrowseFocus): AppState {
+            val frame = state.browse.top ?: return s
+            if (state.screen != VrScreen.BROWSE) return s
+            return s.copy(browse = state.browse.replaceTop(applyFocus(frame, focus)))
         }
 
         // ---- non-input events ------------------------------------------------
@@ -169,13 +197,17 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             val items = if (e.append) frame.items + e.result.items else e.result.items
             val loaded = containers.size + items.size
             val focus = if (e.append) frame.focusIndex else frame.focusIndex.coerceIn(0, maxOf(0, loaded - 1))
+            val folders = containers.map { com.daydreamvr.player.media.UpnpAdapter.folder(it) }
+            val videos = items.map { com.daydreamvr.player.media.UpnpAdapter.video(it) }
+            val browseFocus = if (e.append) frame.focus else clampFocus(frame.focus, folders.size, videos.size)
             val updated = frame.copy(
                 containers = containers,
                 items = items,
-                folders = containers.map { com.daydreamvr.player.media.UpnpAdapter.folder(it) },
-                videos = items.map { com.daydreamvr.player.media.UpnpAdapter.video(it) },
+                folders = folders,
+                videos = videos,
                 totalMatches = maxOf(e.result.totalMatches, loaded),
                 focusIndex = focus,
+                focus = browseFocus,
                 scrollTop = clampScroll(focus, frame.scrollTop, loaded),
                 loading = false,
                 error = null,
@@ -342,7 +374,18 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                         val server = state.servers[i]
                         state.copy(
                             screen = VrScreen.BROWSE,
-                            browse = BrowseState(listOf(BrowseFrame(server, "0", server.friendlyName))),
+                            sources = state.sources.copy(selectedId = "upnp:${server.udn}"),
+                            browse = BrowseState(
+                                listOf(
+                                    BrowseFrame(
+                                        server = server,
+                                        objectId = "0",
+                                        title = server.friendlyName,
+                                        source = MediaSource.Upnp(server),
+                                        focus = BrowseFocus.Sidebar(0),
+                                    ),
+                                ),
+                            ),
                         ) to listOf(Effect.Browse(server, "0", PageRequest.DEFAULT))
                     }
                     i == state.servers.size ->
@@ -361,66 +404,378 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             else -> state to noFx()
         }
 
+        // ---- 3-column PLAY'A browse navigation (UI_REDESIGN_REVIEWED_PLAN.md §10.4, §10.5) ----
+
+        /** Source switcher rows: Device / Network / Favourites. */
+        const val SOURCE_TAB_COUNT = 3
+        private val GRID_COLS get() = BrowseFrame.GRID_COLS
+        private val GRID_PAGE_SIZE get() = BrowseFrame.GRID_PAGE_SIZE
+        private val GRID_ROWS_PER_PAGE get() = GRID_PAGE_SIZE / GRID_COLS
+
         private fun reduceBrowse(state: AppState, action: InputAction): Pair<AppState, List<Effect>> {
             val frame = state.browse.top ?: return backToServerList(state)
             return when (action) {
-                is InputAction.Nav -> when (action.dir) {
-                    InputAction.Dir.LEFT ->
-                        if (state.browse.depth > 1) state.copy(browse = state.browse.pop()) to noFx()
-                        else backToServerList(state)
-                    InputAction.Dir.RIGHT -> openFocused(state, frame)
-                    InputAction.Dir.UP, InputAction.Dir.DOWN -> {
-                        val fi = moveFocus(frame.focusIndex, action.dir, frame.rows.size)
-                        state.copy(
-                            browse = state.browse.replaceTop(
-                                frame.copy(focusIndex = fi, scrollTop = clampScroll(fi, frame.scrollTop, frame.rows.size)),
-                            ),
-                        ) to noFx()
-                    }
+                is InputAction.Nav -> {
+                    val next = nextFocus(frame, action.dir) ?: return state to noFx()
+                    state.copy(browse = state.browse.replaceTop(applyFocus(frame, next))) to noFx()
                 }
-                is InputAction.Confirm -> openFocused(state, frame)
-                InputAction.PageDown -> pageBrowse(state, frame, forward = true)
-                InputAction.PageUp -> pageBrowse(state, frame, forward = false)
-                is InputAction.Seek -> pageBrowse(state, frame, forward = action.deltaSeconds > 0)
+                is InputAction.Confirm -> intentForFocus(frame)?.let { reduceUi(state, it) } ?: (state to noFx())
+                InputAction.PageDown -> reduceUi(state, UiIntent.PageNext)
+                InputAction.PageUp -> reduceUi(state, UiIntent.PagePrev)
+                is InputAction.Seek ->
+                    reduceUi(state, if (action.deltaSeconds > 0) UiIntent.PageNext else UiIntent.PagePrev)
                 InputAction.Menu, InputAction.ToggleHud -> state.copy(screen = VrScreen.SETTINGS) to noFx()
                 else -> state to noFx()
             }
         }
 
-        private fun openFocused(state: AppState, frame: BrowseFrame): Pair<AppState, List<Effect>> {
-            return when (val row = frame.focusedRow) {
-                is DidlContainer ->
-                    state.copy(browse = state.browse.push(BrowseFrame(frame.server, row.id, row.title))) to
-                        listOf(Effect.Browse(frame.server, row.id, PageRequest.DEFAULT))
-                is DidlItem ->
-                    if (!row.isPlayableVideo) {
-                        state.copy(overlay = Overlay.Toast("Not a playable video", state.nowMs + TOAST_MS)) to noFx()
-                    } else {
-                        state to listOf(Effect.Play(row, frame.server.udn, startAtMs = 0L, projectionOverride = null))
-                    }
-                else -> state to noFx()
+        /** Where a directional press moves [BrowseFrame.focus]; null = "no move". */
+        private fun nextFocus(frame: BrowseFrame, dir: InputAction.Dir): BrowseFocus? {
+            val folders = frame.folders.size
+            val videos = frame.sortedVideos.size
+            val gridReturn = frame.gridReturn.coerceIn(0, maxOf(0, videos - 1))
+            return when (val f = frame.focus) {
+                is BrowseFocus.Source -> when (dir) {
+                    InputAction.Dir.UP -> BrowseFocus.Source((f.index - 1).coerceAtLeast(0))
+                    InputAction.Dir.DOWN ->
+                        if (f.index + 1 < SOURCE_TAB_COUNT) BrowseFocus.Source(f.index + 1)
+                        else if (folders > 0) BrowseFocus.Sidebar(0) else BrowseFocus.Grid(gridReturn)
+                    InputAction.Dir.RIGHT -> BrowseFocus.Grid(gridReturn)
+                    InputAction.Dir.LEFT -> null
+                }
+                is BrowseFocus.Sidebar -> when (dir) {
+                    InputAction.Dir.UP ->
+                        if (f.index == 0) BrowseFocus.Source(SOURCE_TAB_COUNT - 1)
+                        else BrowseFocus.Sidebar(f.index - 1)
+                    InputAction.Dir.DOWN -> BrowseFocus.Sidebar((f.index + 1).coerceAtMost(maxOf(0, folders - 1)))
+                    InputAction.Dir.RIGHT -> BrowseFocus.Grid(gridReturn)
+                    InputAction.Dir.LEFT -> null
+                }
+                is BrowseFocus.Grid -> gridFocusMove(frame, f.index, dir)
+                is BrowseFocus.Inspector -> when (dir) {
+                    InputAction.Dir.UP -> BrowseFocus.Inspector(cycleAction(f.action, -1))
+                    InputAction.Dir.DOWN -> BrowseFocus.Inspector(cycleAction(f.action, +1))
+                    InputAction.Dir.LEFT -> BrowseFocus.Grid(gridReturn)
+                    InputAction.Dir.RIGHT -> null
+                }
+                is BrowseFocus.Dock -> when (dir) {
+                    InputAction.Dir.LEFT -> BrowseFocus.Dock(cycleDock(f.button, -1))
+                    InputAction.Dir.RIGHT -> BrowseFocus.Dock(cycleDock(f.button, +1))
+                    InputAction.Dir.UP -> BrowseFocus.Grid(gridReturn)
+                    InputAction.Dir.DOWN -> null
+                }
+                is BrowseFocus.Toolbar -> when (dir) {
+                    InputAction.Dir.DOWN -> BrowseFocus.Grid(gridReturn)
+                    InputAction.Dir.LEFT ->
+                        if (f.chip.ordinal > 0) BrowseFocus.Toolbar(GazeTarget.Chip.entries[f.chip.ordinal - 1]) else null
+                    InputAction.Dir.RIGHT ->
+                        if (f.chip.ordinal < GazeTarget.Chip.entries.lastIndex)
+                            BrowseFocus.Toolbar(GazeTarget.Chip.entries[f.chip.ordinal + 1]) else null
+                    InputAction.Dir.UP -> null
+                }
             }
         }
 
-        private fun pageBrowse(state: AppState, frame: BrowseFrame, forward: Boolean): Pair<AppState, List<Effect>> {
-            if (forward) {
-                if (frame.focusIndex + BROWSE_VISIBLE_ROWS >= frame.loadedCount && frame.hasMorePages) {
-                    return state.copy(browse = state.browse.replaceTop(frame.copy(loading = true))) to
-                        listOf(Effect.Browse(frame.server, frame.objectId, PageRequest(frame.loadedCount, PAGE_FETCH)))
-                }
-                val fi = (frame.focusIndex + BROWSE_VISIBLE_ROWS).coerceAtMost(maxOf(0, frame.rows.size - 1))
-                return state.copy(
+        private fun gridFocusMove(frame: BrowseFrame, index: Int, dir: InputAction.Dir): BrowseFocus? {
+            val count = frame.sortedVideos.size
+            if (count == 0) return when (dir) {
+                InputAction.Dir.LEFT -> BrowseFocus.Sidebar(0).takeIf { frame.folders.isNotEmpty() }
+                InputAction.Dir.RIGHT -> BrowseFocus.Inspector(GazeTarget.Action.PLAY)
+                else -> null
+            }
+            val col = index % GRID_COLS
+            val pageRow = (index % GRID_PAGE_SIZE) / GRID_COLS
+            return when (dir) {
+                InputAction.Dir.LEFT ->
+                    if (col == 0) BrowseFocus.Sidebar(sidebarIndexFor(frame)) else BrowseFocus.Grid(index - 1)
+                InputAction.Dir.RIGHT ->
+                    if (col == GRID_COLS - 1) BrowseFocus.Inspector(GazeTarget.Action.PLAY)
+                    else BrowseFocus.Grid((index + 1).coerceAtMost(count - 1))
+                InputAction.Dir.DOWN ->
+                    if (pageRow == GRID_ROWS_PER_PAGE - 1) BrowseFocus.Dock(GazeTarget.Dock.RECENTER)
+                    else BrowseFocus.Grid((index + GRID_COLS).coerceAtMost(count - 1))
+                InputAction.Dir.UP ->
+                    if (pageRow == 0) null else BrowseFocus.Grid(index - GRID_COLS)
+            }
+        }
+
+        private fun sidebarIndexFor(frame: BrowseFrame): Int =
+            (frame.focus as? BrowseFocus.Sidebar)?.index?.coerceIn(0, maxOf(0, frame.folders.size - 1)) ?: 0
+
+        private fun cycleAction(a: GazeTarget.Action, step: Int): GazeTarget.Action {
+            val v = GazeTarget.Action.entries
+            return v[((a.ordinal + step) % v.size + v.size) % v.size]
+        }
+
+        private fun cycleDock(d: GazeTarget.Dock, step: Int): GazeTarget.Dock {
+            val v = GazeTarget.Dock.entries
+            return v[((d.ordinal + step) % v.size + v.size) % v.size]
+        }
+
+        /** Writes [focus] onto the frame and keeps the legacy list cursors roughly in sync. */
+        private fun applyFocus(frame: BrowseFrame, focus: BrowseFocus): BrowseFrame {
+            val legacyIdx = when (focus) {
+                is BrowseFocus.Sidebar -> focus.index
+                is BrowseFocus.Grid -> frame.containers.size + focus.index
+                else -> frame.focusIndex
+            }.coerceIn(0, maxOf(0, frame.rows.size - 1))
+            val sidebarTop = if (focus is BrowseFocus.Sidebar) {
+                clampScroll(focus.index, frame.sidebarScrollTop, frame.folders.size, SIDEBAR_VISIBLE_ROWS)
+            } else {
+                frame.sidebarScrollTop
+            }
+            return frame.copy(
+                focus = focus,
+                gridReturn = (focus as? BrowseFocus.Grid)?.index ?: frame.gridReturn,
+                focusIndex = legacyIdx,
+                scrollTop = clampScroll(legacyIdx, frame.scrollTop, frame.rows.size),
+                sidebarScrollTop = sidebarTop,
+            )
+        }
+
+        private fun clampFocus(focus: BrowseFocus, folders: Int, videos: Int): BrowseFocus = when (focus) {
+            is BrowseFocus.Grid -> BrowseFocus.Grid(focus.index.coerceIn(0, maxOf(0, videos - 1)))
+            is BrowseFocus.Sidebar -> BrowseFocus.Sidebar(focus.index.coerceIn(0, maxOf(0, folders - 1)))
+            else -> focus
+        }
+
+        /** The A-press / gaze-activate translation table (§10.4). */
+        fun intentForFocus(frame: BrowseFrame): UiIntent? = when (val f = frame.focus) {
+            is BrowseFocus.Source -> null // needs the source list; handled via Event.Ui(SelectSource)
+            is BrowseFocus.Sidebar -> frame.folders.getOrNull(f.index)?.let { UiIntent.SelectFolder(it.id) }
+            is BrowseFocus.Grid -> if (frame.focusedVideo != null) UiIntent.PlayVideo(fromStart = false) else null
+            is BrowseFocus.Inspector -> when (f.action) {
+                GazeTarget.Action.PLAY -> UiIntent.PlayVideo(fromStart = true)
+                GazeTarget.Action.RESUME -> UiIntent.PlayVideo(fromStart = false)
+                GazeTarget.Action.PROJECTION -> UiIntent.OverrideProjection
+            }
+            is BrowseFocus.Dock -> UiIntent.DockAction(f.button)
+            is BrowseFocus.Toolbar -> when (f.chip) {
+                GazeTarget.Chip.SORT -> UiIntent.SelectSort
+                else -> null
+            }
+        }
+
+        // ---- UI intents ----------------------------------------------------
+
+        private fun reduceUi(state: AppState, intent: UiIntent): Pair<AppState, List<Effect>> = when (intent) {
+            is UiIntent.SelectSource -> selectSource(state, intent.sourceId)
+            is UiIntent.SelectFolder -> selectFolder(state, intent.folderId)
+            is UiIntent.SelectGridCell -> {
+                val f = state.browse.top ?: return state to noFx()
+                state.copy(
                     browse = state.browse.replaceTop(
-                        frame.copy(focusIndex = fi, scrollTop = clampScroll(fi, frame.scrollTop, frame.rows.size)),
+                        applyFocus(f, BrowseFocus.Grid(intent.index.coerceAtLeast(0))),
                     ),
                 ) to noFx()
             }
-            val fi = (frame.focusIndex - BROWSE_VISIBLE_ROWS).coerceAtLeast(0)
-            return state.copy(
-                browse = state.browse.replaceTop(
-                    frame.copy(focusIndex = fi, scrollTop = clampScroll(fi, frame.scrollTop, frame.rows.size)),
+            UiIntent.SelectSort -> selectSort(state)
+            UiIntent.PageNext -> pageGrid(state, forward = true)
+            UiIntent.PagePrev -> pageGrid(state, forward = false)
+            is UiIntent.NavigateBreadcrumb -> {
+                val stack = state.browse.stack
+                if (intent.depth < 0 || intent.depth >= stack.size) state to noFx()
+                else state.copy(browse = state.browse.copy(stack = stack.take(intent.depth + 1))) to noFx()
+            }
+            UiIntent.OverrideProjection -> overrideProjection(state)
+            is UiIntent.PlayVideo -> playVideo(state, intent.fromStart)
+            is UiIntent.DockAction -> dockAction(state, intent.button)
+        }
+
+        private fun resolveSource(state: AppState, id: String): MediaSource? =
+            state.sources.available.firstOrNull { it.id == id }
+                ?: when {
+                    id == MediaSource.Local.id -> MediaSource.Local
+                    id == MediaSource.Favourites.id -> MediaSource.Favourites
+                    else -> state.servers.firstOrNull { "upnp:${it.udn}" == id }?.let { MediaSource.Upnp(it) }
+                }
+
+        private fun selectSource(state: AppState, id: String): Pair<AppState, List<Effect>> {
+            val source = resolveSource(state, id) ?: return state to noFx()
+            val sources = state.sources.copy(selectedId = id)
+            fun open(frame: BrowseFrame, fx: List<Effect>) =
+                state.copy(screen = VrScreen.BROWSE, sources = sources, browse = BrowseState(listOf(frame))) to fx
+            return when (source) {
+                is MediaSource.Local -> when {
+                    state.sources.localPermission == MediaPermission.Grant.DENIED -> open(
+                        BrowseFrame(
+                            server = null, objectId = "local", title = source.title, source = source,
+                            loading = false, focus = BrowseFocus.Sidebar(0),
+                            error = "Arc needs permission to read videos on this phone. " +
+                                "Take the headset off and reopen Arc to grant it.",
+                        ),
+                        noFx(),
+                    )
+                    state.localMedia.loaded -> open(
+                        BrowseFrame(
+                            server = null, objectId = "local", title = source.title, source = source,
+                            folders = state.localMedia.folders, loading = false, focus = BrowseFocus.Sidebar(0),
+                        ),
+                        noFx(),
+                    )
+                    else -> open(
+                        BrowseFrame(
+                            server = null, objectId = "local", title = source.title, source = source,
+                            loading = true, focus = BrowseFocus.Sidebar(0),
+                        ),
+                        listOf(Effect.LoadLocalMedia),
+                    )
+                }
+                is MediaSource.Upnp -> open(
+                    BrowseFrame(
+                        server = source.server, objectId = "0", title = source.title, source = source,
+                        focus = BrowseFocus.Sidebar(0),
+                    ),
+                    listOf(Effect.BrowseNode(source, "0", PageRequest.DEFAULT)),
+                )
+                is MediaSource.Favourites -> open(
+                    BrowseFrame(
+                        server = null, objectId = "favourites", title = source.title, source = source,
+                        loading = false, focus = BrowseFocus.Grid(0),
+                    ),
+                    noFx(),
+                )
+            }
+        }
+
+        private fun selectFolder(state: AppState, folderId: String): Pair<AppState, List<Effect>> {
+            val top = state.browse.top ?: return state to noFx()
+            return when (val src = top.mediaSource) {
+                is MediaSource.Local -> {
+                    val vids = state.localMedia.byFolder[folderId].orEmpty()
+                    val folder = state.localMedia.folders.firstOrNull { it.id == folderId }
+                    val child = BrowseFrame(
+                        server = null, objectId = folderId, title = folder?.title ?: "Folder",
+                        source = src, videos = vids, loading = false,
+                        totalMatches = vids.size, focus = BrowseFocus.Grid(0),
+                    )
+                    state.copy(browse = state.browse.push(child)) to noFx()
+                }
+                else -> {
+                    val server = top.server ?: return state to noFx()
+                    val child = BrowseFrame(
+                        server = server, objectId = folderId, title = "Loading…",
+                        source = src, focus = BrowseFocus.Grid(0),
+                    )
+                    state.copy(browse = state.browse.push(child)) to
+                        listOf(Effect.BrowseNode(src, folderId, PageRequest.DEFAULT))
+                }
+            }
+        }
+
+        private fun selectSort(state: AppState): Pair<AppState, List<Effect>> {
+            val frame = state.browse.top ?: return state to noFx()
+            val currentId = frame.focusedVideo?.id
+            val next = frame.copy(sort = frame.sort.next())
+            val idx = next.sortedVideos.indexOfFirst { it.id == currentId }.let { if (it < 0) 0 else it }
+            return state.copy(browse = state.browse.replaceTop(applyFocus(next, BrowseFocus.Grid(idx)))) to noFx()
+        }
+
+        private fun pageGrid(state: AppState, forward: Boolean): Pair<AppState, List<Effect>> {
+            val frame = state.browse.top ?: return state to noFx()
+            val last = frame.sortedVideos.lastIndex.coerceAtLeast(0)
+            val target = if (forward) {
+                (frame.gridFocusIndex + GRID_PAGE_SIZE).coerceAtMost(last)
+            } else {
+                (frame.gridFocusIndex - GRID_PAGE_SIZE).coerceAtLeast(0)
+            }
+            val moved = applyFocus(frame, BrowseFocus.Grid(target))
+            val fx = if (forward && moved.gridPage == moved.pageCount - 1 && frame.hasMorePages) {
+                listOf(Effect.BrowseNode(frame.mediaSource, frame.objectId, PageRequest(frame.loadedCount, PAGE_FETCH)))
+            } else {
+                noFx()
+            }
+            return state.copy(browse = state.browse.replaceTop(moved)) to fx
+        }
+
+        private fun overrideProjection(state: AppState): Pair<AppState, List<Effect>> {
+            val frame = state.browse.top ?: return state to noFx()
+            val video = frame.focusedVideo ?: return state to noFx()
+            val key = MediaKey(frame.mediaSource.id, video.id)
+            val storageKey = key.storageKey()
+            val current = state.projectionOverrides[storageKey] ?: video.detectedProjection
+            val nextMode = cycleProjectionOverride(current)
+            val overrides = if (nextMode == null) {
+                state.projectionOverrides - storageKey
+            } else {
+                state.projectionOverrides + (storageKey to nextMode)
+            }
+            return state.copy(projectionOverrides = overrides) to
+                listOf(Effect.PersistProjectionOverride(key, nextMode))
+        }
+
+        private val PROJECTION_CYCLE = listOf(
+            ProjectionMode.FLAT,
+            ProjectionMode.SBS_HALF,
+            ProjectionMode.TOPBOTTOM_HALF,
+            ProjectionMode.EQUIRECT_180,
+            ProjectionMode.EQUIRECT_360,
+            null,
+        )
+
+        private fun cycleProjectionOverride(current: ProjectionMode?): ProjectionMode? {
+            val i = PROJECTION_CYCLE.indexOf(current).let { if (it < 0) 0 else it }
+            return PROJECTION_CYCLE[(i + 1) % PROJECTION_CYCLE.size]
+        }
+
+        private fun playVideo(state: AppState, fromStart: Boolean): Pair<AppState, List<Effect>> {
+            val frame = state.browse.top ?: return state to noFx()
+            val video = frame.focusedVideo ?: return state to noFx()
+            val key = MediaKey(frame.mediaSource.id, video.id)
+            val override = state.projectionOverrides[key.storageKey()]
+            return state to listOf(
+                Effect.PlayNode(
+                    node = video,
+                    key = key,
+                    startAtMs = 0L,
+                    projectionOverride = override,
+                    skipResumeCheck = fromStart,
                 ),
-            ) to noFx()
+            )
+        }
+
+        private fun dockAction(state: AppState, button: GazeTarget.Dock): Pair<AppState, List<Effect>> = when (button) {
+            GazeTarget.Dock.RECENTER -> state to listOf(Effect.Recenter)
+            GazeTarget.Dock.SETTINGS -> state.copy(screen = VrScreen.SETTINGS) to noFx()
+            GazeTarget.Dock.CALIBRATE ->
+                state.copy(
+                    screen = VrScreen.SETTINGS,
+                    hud = state.hud.copy(focusIndex = Settings.ROWS.indexOf("Screen size").coerceAtLeast(0)),
+                ) to noFx()
+            GazeTarget.Dock.VIEW_MODE -> state to noFx() // grid/list toggle lands with the M5 widgets
+            GazeTarget.Dock.RESCAN ->
+                if (state.browse.top?.mediaSource is MediaSource.Local) {
+                    state to listOf(Effect.LoadLocalMedia)
+                } else {
+                    state.copy(discovery = DiscoveryState.RUNNING) to listOf(Effect.StartDiscovery(force = true))
+                }
+            GazeTarget.Dock.EXIT ->
+                state.copy(
+                    overlay = Overlay.Confirm("Leave the app?", listOf("Stay", "Exit"), 0, tag = "quit"),
+                ) to noFx()
+        }
+
+        private fun reduceLocalMediaLoaded(state: AppState, e: Event.LocalMediaLoaded): Pair<AppState, List<Effect>> {
+            val lm = LocalMedia(folders = e.folders, byFolder = e.byFolder, loaded = true)
+            val top = state.browse.top
+            val browse = if (top != null && top.mediaSource is MediaSource.Local && state.browse.depth == 1) {
+                state.browse.replaceTop(
+                    top.copy(folders = e.folders, loading = false, error = null),
+                )
+            } else {
+                state.browse
+            }
+            return state.copy(localMedia = lm, browse = browse) to noFx()
+        }
+
+        private fun reduceLocalMediaFailed(state: AppState, e: Event.LocalMediaFailed): Pair<AppState, List<Effect>> {
+            val top = state.browse.top
+            val browse = if (top != null && top.mediaSource is MediaSource.Local) {
+                state.browse.replaceTop(top.copy(loading = false, error = e.message))
+            } else {
+                state.browse
+            }
+            return state.copy(browse = browse) to noFx()
         }
 
         private fun reducePlayerInput(state: AppState, action: InputAction): Pair<AppState, List<Effect>> {
@@ -584,11 +939,10 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
         }
 
         private fun retryEffects(state: AppState): List<Effect> {
-            val f = state.browse.top
-            return if (f != null) {
-                listOf(Effect.Browse(f.server, f.objectId, PageRequest.DEFAULT))
-            } else {
-                listOf(Effect.StartDiscovery(force = true))
+            val f = state.browse.top ?: return listOf(Effect.StartDiscovery(force = true))
+            return when {
+                f.mediaSource is MediaSource.Local -> listOf(Effect.LoadLocalMedia)
+                else -> listOf(Effect.BrowseNode(f.mediaSource, f.objectId, PageRequest.DEFAULT))
             }
         }
 

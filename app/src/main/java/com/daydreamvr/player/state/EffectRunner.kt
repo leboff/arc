@@ -5,6 +5,10 @@ import com.daydreamvr.player.data.SettingsStore
 import com.daydreamvr.playback.PlayRequest
 import com.daydreamvr.playback.ResumeStore
 import com.daydreamvr.playback.VideoPlayer
+import com.daydreamvr.player.media.MediaSource
+import com.daydreamvr.player.media.PlaybackRef
+import com.daydreamvr.upnp.model.Resource
+import java.net.URI
 import com.daydreamvr.upnp.MediaServerDirectory
 import com.daydreamvr.upnp.MediaServerDirectoryImpl
 import com.daydreamvr.upnp.cds.ContentDirectoryClient
@@ -77,8 +81,77 @@ class EffectRunner(
             is Effect.ApplySettings -> applySettings(effect.settings)
             is Effect.Persist -> Unit // settings/resume are persisted by their own effects
             Effect.QuitToLobby -> quit()
+            Effect.LoadLocalMedia -> loadLocalMedia()
+            is Effect.BrowseNode -> browseNode(effect)
+            is Effect.PlayNode -> playNode(effect)
+            is Effect.PersistProjectionOverride -> Unit // override store wiring lands with M8 integration
+            is Effect.PrefetchThumbnails -> Unit // handled by the thumbnail pipeline (M6)
         }
     }
+
+    /** Bridged to a real `LocalMediaRepository` in M8; a no-op keeps the reducer contract intact. */
+    var localMediaLoader: (suspend () -> Event)? = null
+
+    private fun loadLocalMedia() {
+        val loader = localMediaLoader ?: return
+        scope.launch { runCatching { loader() }.onSuccess(dispatch) }
+    }
+
+    private fun browseNode(effect: Effect.BrowseNode) {
+        val server = (effect.source as? MediaSource.Upnp)?.server ?: return
+        scope.launch {
+            contentDirectory.browse(server, effect.objectId, effect.page).fold(
+                onSuccess = { dispatch(Event.BrowseLoaded(effect.objectId, it, append = effect.page.start > 0)) },
+                onFailure = { dispatch(Event.BrowseFailed(effect.objectId, humanMessage(it))) },
+            )
+        }
+    }
+
+    private fun playNode(effect: Effect.PlayNode) {
+        val node = effect.node
+        val itemKey = effect.key.storageKey()
+
+        val ranked: List<Resource> = when (val p = node.playback) {
+            is PlaybackRef.Upnp -> ResourceRanker.rank(p.resources, decoderCaps())
+            is PlaybackRef.Local -> listOf(
+                Resource(
+                    uri = URI(p.ref.value),
+                    protocolInfo = "http-get:*:${node.mimeType ?: "video/*"}:*",
+                    sizeBytes = node.sizeBytes,
+                    durationMs = node.durationMs,
+                    resolution = node.width.takeIf { it > 0 }
+                        ?.let { com.daydreamvr.upnp.model.Size(it, node.height) },
+                    bitrate = null,
+                ),
+            )
+        }
+        if (ranked.isEmpty()) {
+            dispatch(Event.Failure("Can't play this", "\"${node.title}\" has no playable source.", canRetry = false))
+            return
+        }
+
+        var startAt = effect.startAtMs
+        if (!effect.skipResumeCheck && startAt == 0L) {
+            val entry = resumeStore.get(itemKey)
+            if (entry != null && !entry.isFinished && entry.positionMs >= RESUME_PROMPT_MIN_MS) {
+                startAt = entry.positionMs
+            }
+        }
+
+        val projection = effect.projectionOverride
+            ?: ProjectionMode.detect(node.title, node.width, node.height)
+        dispatch(Event.ProjectionChanged(projection))
+        player.play(
+            PlayRequest(
+                itemKey = itemKey,
+                title = node.title.ifBlank { "Video" },
+                rankedResources = ranked,
+                startAtMs = startAt,
+                projection = projection,
+            ),
+        )
+    }
+
 
     // ---- discovery / browse ------------------------------------------------
 

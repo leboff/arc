@@ -1,12 +1,16 @@
 package com.daydreamvr.player.state
 
 import com.daydreamvr.playback.PlaybackSnapshot
+import com.daydreamvr.player.media.MediaNode
+import com.daydreamvr.player.media.MediaRef
+import com.daydreamvr.player.media.PlaybackRef
 import com.daydreamvr.upnp.model.BrowseResult
 import com.daydreamvr.upnp.model.DidlContainer
 import com.daydreamvr.upnp.model.DidlItem
 import com.daydreamvr.upnp.model.MediaServer
 import com.daydreamvr.upnp.model.Resource
 import com.daydreamvr.vrcore.input.InputAction
+import com.daydreamvr.vrcore.render.ProjectionMode
 import java.net.URI
 
 /**
@@ -49,6 +53,54 @@ object Fx {
     )
 
     fun videos(n: Int, from: Int = 1): List<DidlItem> = (from until from + n).map { video("v$it") }
+
+    /** A unified [MediaNode.Video] with fully controllable sort keys. */
+    fun videoNode(
+        id: String,
+        title: String = "Clip $id",
+        durationMs: Long? = 60_000L,
+        sizeBytes: Long? = null,
+        dateModifiedMs: Long? = null,
+        projection: ProjectionMode = ProjectionMode.FLAT,
+    ) = MediaNode.Video(
+        id = id,
+        title = title,
+        playback = PlaybackRef.Local(MediaRef("content://media/external/video/media/$id")),
+        durationMs = durationMs,
+        sizeBytes = sizeBytes,
+        width = 1920,
+        height = 1080,
+        mimeType = "video/mp4",
+        dateModifiedMs = dateModifiedMs,
+        detectedProjection = projection,
+    )
+
+    fun folderNode(id: String, title: String = "Folder $id", childCount: Int? = null) =
+        MediaNode.Folder(id = id, title = title, childCount = childCount)
+
+    /** A one-frame browse state on a synthetic local source. */
+    fun localFrame(
+        videos: List<MediaNode.Video> = emptyList(),
+        folders: List<MediaNode.Folder> = emptyList(),
+        focus: BrowseFocus = BrowseFocus.Grid(0),
+        sort: SortOrder = SortOrder.TITLE_ASC,
+        totalMatches: Int = videos.size,
+    ) = BrowseFrame(
+        server = null,
+        objectId = "local",
+        title = "Device",
+        source = com.daydreamvr.player.media.MediaSource.Local,
+        folders = folders,
+        videos = videos,
+        focus = focus,
+        gridReturn = (focus as? BrowseFocus.Grid)?.index ?: 0,
+        sort = sort,
+        totalMatches = totalMatches,
+        loading = false,
+    )
+
+    fun browsing(frame: BrowseFrame): AppState =
+        AppState(screen = VrScreen.BROWSE, browse = BrowseState(listOf(frame)))
 
     fun result(
         objectId: String,

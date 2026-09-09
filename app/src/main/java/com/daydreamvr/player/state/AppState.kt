@@ -4,6 +4,7 @@ import com.daydreamvr.upnp.model.DidlContainer
 import com.daydreamvr.upnp.model.DidlItem
 import com.daydreamvr.upnp.model.DidlObject
 import com.daydreamvr.player.media.MediaNode
+import com.daydreamvr.player.media.MediaSource
 import com.daydreamvr.player.screens.VrKeyboard
 import com.daydreamvr.upnp.model.MediaServer
 import com.daydreamvr.vrcore.render.ProjectionMode
@@ -23,6 +24,14 @@ data class AppState(
     val hud: HudState = HudState(),
     val overlay: Overlay? = null,
     val settings: Settings = Settings(),
+    /** The media sources on offer and which one the browser is showing (§10.1). */
+    val sources: SourcesState = SourcesState(),
+    /** The scanned local video library (§8). */
+    val localMedia: LocalMedia = LocalMedia(),
+    /** User projection overrides, keyed by [com.daydreamvr.player.media.MediaKey.storageKey]. */
+    val projectionOverrides: Map<String, ProjectionMode> = emptyMap(),
+    /** Bumped by the thumbnail coalescer; part of the browse-panel render key. */
+    val thumbGeneration: Int = 0,
     /** What the gaze reticle is currently over; drives the hover style (UI_GAZE_PLAN.md §3.3). */
     val gaze: GazeTarget? = null,
     /** Scroll offsets the renderer honours so focused rows are always drawn (F3/F4). */
@@ -48,6 +57,16 @@ data class AppState(
 
 enum class VrScreen { SERVER_LIST, BROWSE, PLAYER, SETTINGS }
 
+/**
+ * The whole local video library, loaded in one shot by `LocalMediaRepository`
+ * (§8). `byFolder` is keyed by `MediaNode.Folder.id` (the MediaStore bucket id).
+ */
+data class LocalMedia(
+    val folders: List<MediaNode.Folder> = emptyList(),
+    val byFolder: Map<String, List<MediaNode.Video>> = emptyMap(),
+    val loaded: Boolean = false,
+)
+
 /** Visible row counts the renderer measured for each scrolling list (UI_GAZE_PLAN.md §3.3, F5). */
 data class ListWindow(val browse: Int = 8, val settings: Int = 8, val servers: Int = 5)
 
@@ -55,7 +74,8 @@ enum class DiscoveryState { IDLE, RUNNING, FAILED }
 
 /** One folder in the browse path. Each frame keeps its own cursor (ARCHITECTURE.md §12). */
 data class BrowseFrame(
-    val server: MediaServer,
+    /** The UPnP server this frame browses. Null for the local / favourites sources. */
+    val server: MediaServer? = null,
     val objectId: String,
     val title: String,
     val containers: List<DidlContainer> = emptyList(),
@@ -69,14 +89,54 @@ data class BrowseFrame(
     val videos: List<MediaNode.Video> = emptyList(),
     val focusIndex: Int = 0,
     val scrollTop: Int = 0,
+    /** Which media source this frame belongs to; null means "derive `Upnp(server)`". */
+    val source: MediaSource? = null,
+    /** Grid sort order (§10.4, R18). */
+    val sort: SortOrder = SortOrder.TITLE_ASC,
+    /** Which region of the 3-column panel the controller is driving (§10.1). */
+    val focus: BrowseFocus = BrowseFocus.Grid(0),
+    /** Last grid cell the focus sat on — where `UP` from the dock / `RIGHT` from the sidebar returns. */
+    val gridReturn: Int = 0,
+    /** Independent scroll cursor for the left sidebar. */
+    val sidebarScrollTop: Int = 0,
     val totalMatches: Int = 0,
     val loading: Boolean = true,
     val error: String? = null,
 ) {
     val rows: List<DidlObject> get() = containers + items
-    val loadedCount: Int get() = containers.size + items.size
+    val loadedCount: Int get() = maxOf(containers.size + items.size, folders.size + videos.size)
     val focusedRow: DidlObject? get() = rows.getOrNull(focusIndex)
     val hasMorePages: Boolean get() = totalMatches > loadedCount
+
+    /** The source this frame browses — falls back to the UPnP server it was opened from. */
+    val mediaSource: MediaSource
+        get() = source ?: server?.let { MediaSource.Upnp(it) } ?: MediaSource.Local
+
+    /**
+     * Sorted VIEW of [videos]. Recomputed, never stored — storing it would let it
+     * drift from [sort] (§10.1).
+     */
+    val sortedVideos: List<MediaNode.Video>
+        get() = when (sort) {
+            SortOrder.TITLE_ASC -> videos.sortedBy { it.title.lowercase() }
+            SortOrder.DATE_DESC -> videos.sortedByDescending { it.dateModifiedMs ?: 0L }
+            SortOrder.DURATION_DESC -> videos.sortedByDescending { it.durationMs ?: 0L }
+            SortOrder.SIZE_DESC -> videos.sortedByDescending { it.sizeBytes ?: 0L }
+        }
+
+    val gridFocusIndex: Int get() = (focus as? BrowseFocus.Grid)?.index ?: 0
+
+    /** SINGLE DIVISOR — page and cell can never disagree (§10.1). */
+    val gridPage: Int get() = gridFocusIndex / GRID_PAGE_SIZE
+    val pageCount: Int
+        get() = ((sortedVideos.size + GRID_PAGE_SIZE - 1) / GRID_PAGE_SIZE).coerceAtLeast(1)
+    val focusedVideo: MediaNode.Video? get() = sortedVideos.getOrNull(gridFocusIndex)
+
+    companion object {
+        /** 3 columns × 2 rows per grid page (§5.2). */
+        const val GRID_PAGE_SIZE = 6
+        const val GRID_COLS = 3
+    }
 }
 
 data class BrowseState(val stack: List<BrowseFrame> = emptyList()) {

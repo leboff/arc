@@ -1,6 +1,8 @@
 package com.daydreamvr.player.state
 
 import com.daydreamvr.playback.PlaybackSnapshot
+import com.daydreamvr.player.media.MediaNode
+import com.daydreamvr.player.media.local.MediaPermission
 import com.daydreamvr.upnp.model.BrowseResult
 import com.daydreamvr.upnp.model.DidlItem
 import com.daydreamvr.upnp.model.MediaServer
@@ -65,4 +67,24 @@ sealed interface Event {
         val positionMs: Long,
         val durationMs: Long,
     ) : Event
+
+    // ---- 3-column PLAY'A UI + local media (UI_REDESIGN_REVIEWED_PLAN.md §10.2) ----
+
+    /** User intent, from EITHER gaze-activate or controller Confirm. One path, two producers. */
+    data class Ui(val intent: UiIntent) : Event
+
+    data class LocalMediaLoaded(
+        val folders: List<MediaNode.Folder>,
+        val byFolder: Map<String, List<MediaNode.Video>>,
+    ) : Event
+
+    data class LocalMediaFailed(val message: String) : Event
+
+    data class LocalPermissionChanged(val grant: MediaPermission.Grant) : Event
+
+    /** The `ContentObserver` fired (already debounced). */
+    data object LocalMediaChanged : Event
+
+    /** Coalesced thumbnail arrivals; bumps `thumbGeneration`. */
+    data object ThumbnailsArrived : Event
 }

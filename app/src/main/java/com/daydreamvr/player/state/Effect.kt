@@ -1,5 +1,9 @@
 package com.daydreamvr.player.state
 
+import com.daydreamvr.player.media.MediaKey
+import com.daydreamvr.player.media.MediaNode
+import com.daydreamvr.player.media.MediaRef
+import com.daydreamvr.player.media.MediaSource
 import com.daydreamvr.upnp.model.DidlItem
 import com.daydreamvr.upnp.model.MediaServer
 import com.daydreamvr.upnp.model.PageRequest
@@ -55,4 +59,26 @@ sealed interface Effect {
     data class Persist(val key: String, val value: String) : Effect
 
     data object QuitToLobby : Effect
+
+    // ---- 3-column PLAY'A UI + local media (UI_REDESIGN_REVIEWED_PLAN.md §10.3) ----
+
+    data object LoadLocalMedia : Effect
+
+    data class BrowseNode(
+        val source: MediaSource,
+        val objectId: String,
+        val page: PageRequest,
+    ) : Effect
+
+    data class PlayNode(
+        val node: MediaNode.Video,
+        val key: MediaKey,
+        val startAtMs: Long,
+        val projectionOverride: ProjectionMode?,
+        val skipResumeCheck: Boolean = false,
+    ) : Effect
+
+    data class PersistProjectionOverride(val key: MediaKey, val mode: ProjectionMode?) : Effect
+
+    data class PrefetchThumbnails(val keys: List<Pair<String, MediaRef>>) : Effect
 }

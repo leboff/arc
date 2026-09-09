@@ -78,6 +78,36 @@ class EscapeHatchTest {
     }
 
     @Test
+    fun shortCancelTransitionsFromEveryBrowseFocus() {
+        val focuses: List<BrowseFocus> = listOf(
+            BrowseFocus.Source(0),
+            BrowseFocus.Sidebar(0),
+            BrowseFocus.Grid(0),
+            BrowseFocus.Inspector(GazeTarget.Action.PLAY),
+            BrowseFocus.Inspector(GazeTarget.Action.RESUME),
+            BrowseFocus.Inspector(GazeTarget.Action.PROJECTION),
+            BrowseFocus.Toolbar(GazeTarget.Chip.SORT),
+        ) + GazeTarget.Dock.entries.map { BrowseFocus.Dock(it) }
+
+        for (f in focuses) {
+            // depth 2 so B pops a breadcrumb level; depth 1 exits to the source list.
+            for (depth in listOf(1, 2)) {
+                val stack = buildList {
+                    add(rootFrame.copy(focus = f))
+                    if (depth == 2) add(rootFrame.copy(objectId = "c1", focus = f))
+                }
+                val state = AppState(
+                    screen = VrScreen.BROWSE,
+                    servers = listOf(server),
+                    browse = BrowseState(stack),
+                )
+                val (next, _) = AppStateMachine.reduce(state, Event.Input(InputAction.Cancel(long = false)))
+                assertWithMessage("B from %s at depth %s", f, depth).that(next).isNotEqualTo(state)
+            }
+        }
+    }
+
+    @Test
     fun shortCancelClearsWhicheverOverlayIsUp() {
         for (overlay in listOf(
             Overlay.Error("t", "m", canRetry = true),
