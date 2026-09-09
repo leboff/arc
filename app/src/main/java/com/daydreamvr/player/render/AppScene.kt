@@ -90,7 +90,11 @@ class AppScene(
 
     fun setYawRate(rate: Float) { yawRate = rate }
 
-    @Volatile private var recenterRequested = false
+    @Volatile private var recenterSettleSeconds = 0f
+    internal val recenterRemainingSeconds: Float get() = recenterSettleSeconds
+    internal var screenAnchorYawForTest: Float
+        get() = screenAnchorYaw
+        set(value) { screenAnchorYaw = value }
 
     // Reticle placement, written in update, read in draw.
     private var reticleVisible = false
@@ -145,7 +149,7 @@ class AppScene(
     override fun onGlResize(width: Int, height: Int) = Unit
 
     fun recenter() {
-        recenterRequested = true
+        recenterSettleSeconds = RECENTER_SETTLE_SECONDS
     }
 
     override fun update(dtSeconds: Float, pose: FloatArray) {
@@ -164,13 +168,17 @@ class AppScene(
 
         reportListWindowOnce()
 
-        if (recenterRequested) {
-            recenterRequested = false
-            activePanelAnchor(state.screen)?.snapTo(headYaw)
-            overlay?.anchor?.snapTo(headYaw)
-            calibration?.anchor?.snapTo(headYaw)
-            gamepadCal?.anchor?.snapTo(headYaw)
-            screenAnchorYaw = headYaw
+        if (recenterSettleSeconds > 0f) {
+            recenterSettleSeconds = (recenterSettleSeconds - dtSeconds).coerceAtLeast(0f)
+            serverList?.anchor?.snapTo(0f)
+            browse?.anchor?.snapTo(0f)
+            dock?.anchor?.snapTo(0f)
+            settings?.anchor?.snapTo(0f)
+            hud?.anchor?.snapTo(0f)
+            overlay?.anchor?.snapTo(0f)
+            calibration?.anchor?.snapTo(0f)
+            gamepadCal?.anchor?.snapTo(0f)
+            screenAnchorYaw = 0f
         } else {
             activePanelAnchor(state.screen)?.update(headYaw, dtSeconds)
             overlay?.anchor?.update(headYaw, dtSeconds)
@@ -366,7 +374,10 @@ class AppScene(
         VrScreen.PLAYER -> false
     }
 
-    private companion object {
+    companion object {
+        /** Duration to hold anchors at 0 while RecenterController slews the head pose to 0 (tau=0.06s). */
+        const val RECENTER_SETTLE_SECONDS = 0.20f
+
         fun rgb(argb: Int): FloatArray = floatArrayOf(
             ((argb shr 16) and 0xFF) / 255f,
             ((argb shr 8) and 0xFF) / 255f,
