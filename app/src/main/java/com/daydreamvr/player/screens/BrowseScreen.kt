@@ -14,7 +14,8 @@ import com.daydreamvr.vrcore.ui.widgets.ListView
 import com.daydreamvr.vrcore.ui.widgets.Timeline
 
 /** Breadcrumb + scrolling folder list with a focused-item detail card (§11.4). */
-class BrowseScreen(panel: PanelSurface, theme: Theme) : ScreenPanel(panel, theme, panelWidthM = 2.6f, panelHeightM = 1.5f) {
+class BrowseScreen(panel: PanelSurface, theme: Theme) :
+    ScreenPanel(panel, theme, panelWidthM = 2.40f, panelHeightM = 1.50f) {
 
     private val breadcrumb = Breadcrumb(theme, panel.widthPx)
     private val list = ListView(theme, panel.widthPx)

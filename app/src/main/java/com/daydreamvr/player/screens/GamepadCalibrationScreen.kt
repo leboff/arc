@@ -26,7 +26,7 @@ import com.daydreamvr.vrcore.ui.Theme
  * [GamepadCalibration.applyAbSwap] rewrites an [InputBindings] accordingly.
  */
 class GamepadCalibrationScreen(panel: PanelSurface, theme: Theme) :
-    ScreenPanel(panel, theme, panelWidthM = 2.4f, panelHeightM = 1.4f) {
+    ScreenPanel(panel, theme, panelWidthM = 2.20f, panelHeightM = 1.10f) {
 
     fun render(state: AppState) {
         if (state.screen != VrScreen.SETTINGS) return

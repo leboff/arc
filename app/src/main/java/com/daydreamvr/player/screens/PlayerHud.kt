@@ -20,7 +20,7 @@ import java.util.Locale
  * picture; only redrawn when the playback slice changes.
  */
 class PlayerHud(panel: PanelSurface, theme: Theme) :
-    ScreenPanel(panel, theme, panelWidthM = 2.8f, panelHeightM = 0.9f) {
+    ScreenPanel(panel, theme, panelWidthM = 2.40f, panelHeightM = 0.62f) {
 
     override val verticalOffsetM: Float = -1.15f
 

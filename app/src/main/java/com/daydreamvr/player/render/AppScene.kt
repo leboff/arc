@@ -73,13 +73,14 @@ class AppScene(
     override fun onGlCreate() {
         if (created) onGlDestroy()
 
-        serverList = ServerListScreen(PanelSurface(1024, 640), theme).also { it.onGlCreate() }
-        browse = BrowseScreen(PanelSurface(1280, 768), theme).also { it.onGlCreate() }
-        settings = SettingsScreen(PanelSurface(1024, 720), theme).also { it.onGlCreate() }
+        // Texture sizes chosen so widthPx/widthM ≈ heightPx/heightM (UI_GAZE_PLAN.md §2.2, F8).
+        serverList = ServerListScreen(PanelSurface(1024, 676), theme).also { it.onGlCreate() }
+        browse = BrowseScreen(PanelSurface(1280, 800), theme).also { it.onGlCreate() }
+        settings = SettingsScreen(PanelSurface(1024, 700), theme).also { it.onGlCreate() }
         calibration = CalibrationScreen(PanelSurface(1536, 1024), theme).also { it.onGlCreate() }
         gamepadCal = GamepadCalibrationScreen(PanelSurface(1024, 512), theme).also { it.onGlCreate() }
-        hud = PlayerHud(PanelSurface(1280, 384), theme).also { it.onGlCreate() }
-        overlay = OverlayRenderer(PanelSurface(1024, 768), theme).also { it.onGlCreate() }
+        hud = PlayerHud(PanelSurface(1280, 332), theme).also { it.onGlCreate() }
+        overlay = OverlayRenderer(PanelSurface(1024, 668), theme).also { it.onGlCreate() }
 
         cylinder.onGlCreate()
         sphere.onGlCreate()

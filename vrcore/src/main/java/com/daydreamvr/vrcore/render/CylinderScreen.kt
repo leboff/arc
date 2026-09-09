@@ -115,7 +115,9 @@ class CylinderScreen(
         val geo = mesh ?: return
 
         Matrix.setIdentityM(model, 0)
-        Matrix.rotateM(model, 0, Math.toDegrees(yawRad.toDouble()).toFloat(), 0f, 1f, 0f)
+        // Negated: rotateM about +Y turns opposite to the atan2(x,−z) azimuth
+        // convention yawRad is expressed in (UI_GAZE_PLAN.md §1.6, F6).
+        Matrix.rotateM(model, 0, Math.toDegrees(-yawRad.toDouble()).toFloat(), 0f, 1f, 0f)
         Matrix.multiplyMM(viewProj, 0, projM, 0, viewM, 0)
         Matrix.multiplyMM(mvp, 0, viewProj, 0, model, 0)
 

@@ -16,7 +16,7 @@ import java.util.Locale
  * clamping and emits [com.daydreamvr.player.state.Effect.ApplySettings].
  */
 class SettingsScreen(panel: PanelSurface, theme: Theme) :
-    ScreenPanel(panel, theme, panelWidthM = 2.4f, panelHeightM = 1.5f) {
+    ScreenPanel(panel, theme, panelWidthM = 2.20f, panelHeightM = 1.50f) {
 
     private val list = ListView(theme, panel.widthPx)
 

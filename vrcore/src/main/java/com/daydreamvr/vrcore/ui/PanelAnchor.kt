@@ -15,7 +15,12 @@ import kotlin.math.PI
  * Pure — [update] takes the frame `dt`; no clock, no Android.
  */
 class PanelAnchor(
-    var distanceM: Float = 2.5f,
+    /**
+     * Fixed viewing distance, metres. `val` on purpose: [com.daydreamvr.vrcore.ui.PanelQuad]
+     * captures this as its curve radius at construction and the closed-form gaze
+     * raycast (UI_GAZE_PLAN.md §1.4) depends on `curveRadiusM == distanceM` (F7).
+     */
+    val distanceM: Float = 2.5f,
     var followThresholdDeg: Float = 35f,
     var followTauSeconds: Float = 0.5f,
 ) {

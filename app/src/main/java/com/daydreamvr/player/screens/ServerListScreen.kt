@@ -8,7 +8,8 @@ import com.daydreamvr.vrcore.ui.Theme
 import com.daydreamvr.vrcore.ui.widgets.ListView
 
 /** Discovered servers + "Add manually" + "Retry discovery" (ARCHITECTURE.md §11.4). */
-class ServerListScreen(panel: PanelSurface, theme: Theme) : ScreenPanel(panel, theme) {
+class ServerListScreen(panel: PanelSurface, theme: Theme) :
+    ScreenPanel(panel, theme, panelWidthM = 2.20f, panelHeightM = 1.45f) {
 
     private val list = ListView(theme, panel.widthPx)
 
