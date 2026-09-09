@@ -91,8 +91,8 @@ class AppContainer(context: Context) {
     @UnstableApi
     fun createPlayer(onFatalError: (String) -> Unit): VideoPlayer =
         PlaybackEngineRouter(
-            media3 = ExoVideoPlayer(appContext, resumeStore, onFatalError),
-            vlcFactory = { VlcVideoPlayer(appContext, resumeStore, onFatalError) },
+            media3 = ExoVideoPlayer(appContext, resumeStore, onFatalError = {}),
+            vlcFactory = { VlcVideoPlayer(appContext, resumeStore, onFatalError = {}) },
             engineStore = playbackEngineStore,
             onFatalError = onFatalError,
         )

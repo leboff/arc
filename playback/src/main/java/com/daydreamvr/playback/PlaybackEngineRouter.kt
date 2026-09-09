@@ -119,8 +119,8 @@ class PlaybackEngineRouter(
         enginesTried += which
 
         currentSurface?.let { target.attach(it) }
-        mirror(target)
         target.play(request.copy(startAtMs = startAtMs))
+        mirror(target)
     }
 
     private fun mirror(player: VideoPlayer) {
@@ -132,7 +132,6 @@ class PlaybackEngineRouter(
 
     private fun onSnapshot(source: VideoPlayer, snap: PlaybackSnapshot) {
         if (source !== active) return
-        _snapshot.value = snap
 
         val failure = snap.failure
         if (failure != null && !switching) {
@@ -143,11 +142,23 @@ class PlaybackEngineRouter(
                 enginesTried = enginesTried,
             )
             if (action is FallbackAction.SwitchEngine) {
+                // Suppress the intermediate failure on the router's public snapshot so the UI
+                // never displays a transient error dialog while we fail over to the fallback engine.
+                _snapshot.value = _snapshot.value.copy(
+                    isBuffering = true,
+                    failure = null,
+                )
                 switchTo(action.to, from = snap)
                 return
             }
-            if (action is FallbackAction.GiveUp) onFatalError(action.userMessage)
+            if (action is FallbackAction.GiveUp) {
+                _snapshot.value = snap
+                onFatalError(action.userMessage)
+                return
+            }
         }
+
+        _snapshot.value = snap
 
         if (snap.state == PlaybackState.READY && snap.failure == null) {
             currentRequest?.let { engineStore.remember(it.itemKey, activeEngine) }

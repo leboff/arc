@@ -1,5 +1,7 @@
 package com.daydreamvr.player.state
 
+import com.daydreamvr.playback.PlaybackState
+import com.daydreamvr.player.data.OpticsSettingsResolver
 import com.daydreamvr.player.media.MediaKey
 import com.daydreamvr.player.media.MediaSource
 import com.daydreamvr.player.media.local.MediaPermission
@@ -242,11 +244,16 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             var s = state.copy(playback = slice)
             if (snap.failure != null) {
                 s = s.copy(overlay = Overlay.Error("Playback problem", snap.failure!!.userMessage, canRetry = true))
-            } else if (snap.itemKey != null && state.screen != VrScreen.PLAYER) {
-                s = s.copy(
-                    screen = VrScreen.PLAYER,
-                    hud = HudState(visible = false, lastInputAtMs = state.nowMs),
-                )
+            } else {
+                if (s.overlay is Overlay.Error && (snap.isPlaying || snap.state == PlaybackState.READY)) {
+                    s = s.copy(overlay = null)
+                }
+                if (snap.itemKey != null && state.screen != VrScreen.PLAYER) {
+                    s = s.copy(
+                        screen = VrScreen.PLAYER,
+                        hud = HudState(visible = false, lastInputAtMs = state.nowMs),
+                    )
+                }
             }
             return s to noFx()
         }
@@ -416,8 +423,22 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             val frame = state.browse.top ?: return backToServerList(state)
             return when (action) {
                 is InputAction.Nav -> {
-                    val next = nextFocus(frame, action.dir) ?: return state to noFx()
-                    state.copy(browse = state.browse.replaceTop(applyFocus(frame, next))) to noFx()
+                    val next = nextFocus(frame, action.dir)
+                    if (next != null) {
+                        val moved = applyFocus(frame, next)
+                        val fx = if ((action.dir == InputAction.Dir.DOWN || action.dir == InputAction.Dir.RIGHT) &&
+                            moved.gridPage == moved.pageCount - 1 && frame.hasMorePages
+                        ) {
+                            listOf(Effect.BrowseNode(frame.mediaSource, frame.objectId, PageRequest(frame.loadedCount, PAGE_FETCH)))
+                        } else {
+                            noFx()
+                        }
+                        state.copy(browse = state.browse.replaceTop(moved)) to fx
+                    } else if (action.dir == InputAction.Dir.DOWN && frame.focus is BrowseFocus.Grid && frame.hasMorePages) {
+                        state to listOf(Effect.BrowseNode(frame.mediaSource, frame.objectId, PageRequest(frame.loadedCount, PAGE_FETCH)))
+                    } else {
+                        state to noFx()
+                    }
                 }
                 is InputAction.Confirm -> intentForFocus(frame)?.let { reduceUi(state, it) } ?: (state to noFx())
                 InputAction.PageDown -> reduceUi(state, UiIntent.PageNext)
@@ -484,7 +505,6 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                 else -> null
             }
             val col = index % GRID_COLS
-            val pageRow = (index % GRID_PAGE_SIZE) / GRID_COLS
             return when (dir) {
                 InputAction.Dir.LEFT ->
                     if (col == 0) BrowseFocus.Sidebar(sidebarIndexFor(frame)) else BrowseFocus.Grid(index - 1)
@@ -492,10 +512,19 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                     if (col == GRID_COLS - 1) BrowseFocus.Inspector(GazeTarget.Action.PLAY)
                     else BrowseFocus.Grid((index + 1).coerceAtMost(count - 1))
                 InputAction.Dir.DOWN ->
-                    if (pageRow == GRID_ROWS_PER_PAGE - 1) BrowseFocus.Dock(GazeTarget.Dock.RECENTER)
-                    else BrowseFocus.Grid((index + GRID_COLS).coerceAtMost(count - 1))
+                    if (index + GRID_COLS < count) {
+                        BrowseFocus.Grid(index + GRID_COLS)
+                    } else if (index < count - 1) {
+                        if (index / GRID_PAGE_SIZE < (count - 1) / GRID_PAGE_SIZE) {
+                            BrowseFocus.Grid((index + GRID_COLS).coerceAtMost(count - 1))
+                        } else {
+                            BrowseFocus.Grid(index + 1)
+                        }
+                    } else {
+                        null
+                    }
                 InputAction.Dir.UP ->
-                    if (pageRow == 0) null else BrowseFocus.Grid(index - GRID_COLS)
+                    if (index - GRID_COLS < 0) null else BrowseFocus.Grid(index - GRID_COLS)
             }
         }
 
@@ -861,20 +890,9 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             return state.copy(settings = settings) to listOf(Effect.ApplySettings(settings))
         }
 
-        /** Viewer selection does not modify global observer IPD. */
-        private fun cycleProfile(s: Settings, dir: Int): Settings {
-            val all = com.daydreamvr.vrcore.profile.DeviceProfiles.ALL
-            val cur = all.indexOfFirst { it.id == s.deviceProfileId }.coerceAtLeast(0)
-            val step = if (dir >= 0) 1 else all.size - 1
-            val next = all[(cur + step) % all.size]
-            return s.copy(
-                deviceProfileId = next.id,
-                screenToLensMm = next.screenToLensDistanceM * 1000f,
-                lensK1 = next.distortionK.getOrElse(0) { 0f },
-                lensK2 = next.distortionK.getOrElse(1) { 0f },
-                dividerPx = next.dividerPx,
-            )
-        }
+        /** Viewer selection does not modify global observer IPD (§4, §5). */
+        private fun cycleProfile(s: Settings, dir: Int): Settings =
+            OpticsSettingsResolver.cycleProfile(s, dir)
 
         private fun roundHundredth(v: Float): Float = kotlin.math.round(v * 100f) / 100f
 

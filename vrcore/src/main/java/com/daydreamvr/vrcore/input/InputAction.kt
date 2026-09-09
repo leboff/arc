@@ -10,7 +10,7 @@ sealed interface InputAction {
     enum class Dir { UP, DOWN, LEFT, RIGHT }
 
     /** Discrete list / menu navigation. [repeat] is true for auto-repeat fires. */
-    data class Nav(val dir: Dir, val repeat: Boolean) : InputAction
+    data class Nav(val dir: Dir, val repeat: Boolean = false) : InputAction
 
     data class Confirm(val long: Boolean) : InputAction
 

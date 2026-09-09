@@ -124,6 +124,7 @@ class VlcVideoPlayer(
 
     override fun pause() {
         mediaPlayer?.pause()
+        isPlayingNow = false
         persistResume()
         publish()
     }
@@ -228,8 +229,9 @@ class VlcVideoPlayer(
 
     private fun handleEvent(event: MediaPlayer.Event) {
         when (event.type) {
-            MediaPlayer.Event.Buffering ->
-                if (event.buffering < 100f) state = PlaybackState.BUFFERING
+            MediaPlayer.Event.Buffering -> {
+                state = VlcPlaybackStateHelper.onBufferingEvent(state, isPlayingNow, event.buffering)
+            }
 
             MediaPlayer.Event.Playing -> {
                 state = PlaybackState.READY
@@ -266,16 +268,21 @@ class VlcVideoPlayer(
         positionMs = mp.time.coerceAtLeast(0L)
         if (mp.length > 0L) durationMs = mp.length
         isPlayingNow = mp.isPlaying
+        if (isPlayingNow && state == PlaybackState.BUFFERING) {
+            state = PlaybackState.READY
+        }
     }
 
     private fun publish() {
         val req = request
+        val effState = VlcPlaybackStateHelper.effectiveState(state, isPlayingNow)
+        val buffering = VlcPlaybackStateHelper.isBuffering(state, isPlayingNow)
         _snapshot.value = _snapshot.value.copy(
             itemKey = req?.itemKey ?: _snapshot.value.itemKey,
             title = req?.title ?: _snapshot.value.title,
-            state = state,
+            state = effState,
             isPlaying = isPlayingNow,
-            isBuffering = state == PlaybackState.BUFFERING,
+            isBuffering = buffering,
             positionMs = positionMs,
             bufferedMs = positionMs,
             durationMs = durationMs,
@@ -358,4 +365,30 @@ internal fun newVideoLayoutListener(
         vlcVout.setWindowSize(width, height)
         onLayout(width, height)
     }
+}
+
+/**
+ * Pure state-transition helpers for LibVLC buffering and playback states.
+ *
+ * LibVLC can emit [MediaPlayer.Event.Buffering] events (even at 99%) while audio/video
+ * frames are already decoding and presenting. [isBuffering] must strictly be false
+ * whenever [isPlayingNow] is true to prevent UI overlays from latching "Buffering…".
+ * Additionally, a 100% buffering event must clear [PlaybackState.BUFFERING] back to
+ * [PlaybackState.READY].
+ */
+internal object VlcPlaybackStateHelper {
+    fun onBufferingEvent(
+        currentState: PlaybackState,
+        isPlayingNow: Boolean,
+        percent: Float,
+    ): PlaybackState = when {
+        percent < 100f -> if (!isPlayingNow) PlaybackState.BUFFERING else currentState
+        else -> if (currentState == PlaybackState.BUFFERING) PlaybackState.READY else currentState
+    }
+
+    fun isBuffering(state: PlaybackState, isPlayingNow: Boolean): Boolean =
+        !isPlayingNow && state == PlaybackState.BUFFERING
+
+    fun effectiveState(state: PlaybackState, isPlayingNow: Boolean): PlaybackState =
+        if (isPlayingNow && state == PlaybackState.BUFFERING) PlaybackState.READY else state
 }
