@@ -14,6 +14,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import com.daydreamvr.player.media.local.MediaPermission
+import com.daydreamvr.vrcore.profile.DeviceProfiles
 import kotlinx.coroutines.launch
 
 /**
@@ -24,8 +25,11 @@ import kotlinx.coroutines.launch
 class SetupActivity : ComponentActivity() {
 
     private lateinit var mediaAccessRow: TextView
+    private lateinit var profileBtn: Button
     private lateinit var rootLayout: LinearLayout
     private var crashBanner: android.view.View? = null
+
+    private val container by lazy { (application as PlayerApp).container }
 
     /**
      * The runtime storage permission is requested **here only** — a system dialog
@@ -39,7 +43,6 @@ class SetupActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val container = (application as PlayerApp).container
         val padding = (resources.displayMetrics.density * 20).toInt()
 
         val title = TextView(this).apply {
@@ -113,6 +116,30 @@ class SetupActivity : ComponentActivity() {
             }
         }
 
+        profileBtn = Button(this).apply {
+            textSize = 14f
+            text = "Viewer Profile: ${container.deviceProfile.displayName}"
+            setOnClickListener {
+                lifecycleScope.launch {
+                    val current = container.settingsStore.current()
+                    val all = DeviceProfiles.ALL
+                    val nextIdx = (all.indexOfFirst { it.id == current.deviceProfileId } + 1) % all.size
+                    val nextProfile = all[nextIdx]
+                    val updated = current.copy(
+                        deviceProfileId = nextProfile.id,
+                        screenToLensMm = nextProfile.screenToLensDistanceM * 1000f,
+                        lensK1 = nextProfile.distortionK[0],
+                        lensK2 = nextProfile.distortionK[1],
+                        ipdMm = nextProfile.interLensDistanceM * 1000f,
+                    )
+                    container.settingsStore.save(updated)
+                    container.deviceProfile = nextProfile
+                    text = "Viewer Profile: ${nextProfile.displayName}"
+                    Toast.makeText(this@SetupActivity, "Set profile to ${nextProfile.displayName}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
         val enterVr = Button(this).apply {
             id = ENTER_VR_ID
             setText(R.string.enter_vr)
@@ -134,7 +161,14 @@ class SetupActivity : ComponentActivity() {
             addView(grantMediaBtn, wrap())
             addView(
                 TextView(this@SetupActivity).apply {
-                    setPadding(0, padding / 2, 0, padding / 2)
+                    setPadding(0, padding / 4, 0, padding / 4)
+                },
+                wrap(),
+            )
+            addView(profileBtn, wrap())
+            addView(
+                TextView(this@SetupActivity).apply {
+                    setPadding(0, padding / 4, 0, padding / 4)
                 },
                 wrap(),
             )
@@ -182,6 +216,9 @@ class SetupActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         showCrashBannerIfPresent()
+        if (::profileBtn.isInitialized) {
+            profileBtn.text = "Viewer Profile: ${container.deviceProfile.displayName}"
+        }
     }
 
     /**

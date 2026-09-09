@@ -72,7 +72,7 @@ object DeviceProfiles {
         GENERIC_100,
     )
 
-    val DEFAULT: DeviceProfile = CARDBOARD_V2
+    val DEFAULT: DeviceProfile = DAYDREAM_VIEW_2017
 
     fun byId(id: String): DeviceProfile? = ALL.firstOrNull { it.id == id }
 }

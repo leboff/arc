@@ -28,16 +28,16 @@ class SettingsStore(context: Context) {
 
     @Serializable
     data class SettingsBlob(
-        val deviceProfileId: String = "cardboard_v2",
+        val deviceProfileId: String = "daydream_view_2017",
         val predictionEnabled: Boolean = true,
         val neckModelEnabled: Boolean = true,
         val autoRecenterIdleSeconds: Int = 0,
-        val ipdMm: Float = 63f,
+        val ipdMm: Float = 64f,
         val screenDistanceM: Float = 4f,
         val screenWidthDegrees: Float = 60f,
-        val screenToLensMm: Float = 39f,
-        val lensK1: Float = 0.34f,
-        val lensK2: Float = 0.55f,
+        val screenToLensMm: Float = 40f,
+        val lensK1: Float = 0.36f,
+        val lensK2: Float = 0.42f,
         val dividerPx: Int = 8,
         val distortionCorrection: Boolean = true,
         val gamepadAbSwapped: Boolean = false,
