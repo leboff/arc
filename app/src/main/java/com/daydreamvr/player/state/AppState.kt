@@ -3,6 +3,7 @@ package com.daydreamvr.player.state
 import com.daydreamvr.upnp.model.DidlContainer
 import com.daydreamvr.upnp.model.DidlItem
 import com.daydreamvr.upnp.model.DidlObject
+import com.daydreamvr.player.media.MediaNode
 import com.daydreamvr.player.screens.VrKeyboard
 import com.daydreamvr.upnp.model.MediaServer
 import com.daydreamvr.vrcore.render.ProjectionMode
@@ -59,6 +60,13 @@ data class BrowseFrame(
     val title: String,
     val containers: List<DidlContainer> = emptyList(),
     val items: List<DidlItem> = emptyList(),
+    /**
+     * The unified view of [containers] / [items], populated alongside them from
+     * the same event (strangler S2, UI_REDESIGN_REVIEWED_PLAN.md §10.7). Consumers
+     * migrate to these; the DIDL lists are removed in S6.
+     */
+    val folders: List<MediaNode.Folder> = emptyList(),
+    val videos: List<MediaNode.Video> = emptyList(),
     val focusIndex: Int = 0,
     val scrollTop: Int = 0,
     val totalMatches: Int = 0,
