@@ -50,6 +50,11 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.core)
 
+    // Phase F2 (docs/FORMAT_SUPPORT_PLAN.md §5): LibVLC compatibility engine for
+    // containers/codecs Media3 cannot demux or decode (WMV/ASF, RealMedia, VC-1,
+    // MPEG-2, malformed MP4). Resolved from mavenCentral(); no NDK, no build step.
+    implementation(libs.libvlc.all)
+
     testImplementation(libs.junit4)
     testImplementation(libs.truth)
     testImplementation(libs.kotlinx.coroutines.test)

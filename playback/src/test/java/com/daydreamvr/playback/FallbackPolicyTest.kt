@@ -67,4 +67,89 @@ class FallbackPolicyTest {
         assertThat(FallbackPolicy.decide(f, attempt = 0, remainingResources = 0))
             .isInstanceOf(FallbackAction.GiveUp::class.java)
     }
+
+    // ---- F2: engine switching (docs/FORMAT_SUPPORT_PLAN.md §8.4) ----------
+
+    @Test
+    fun unsupportedContainer_switchesToVlcWhenVlcUntried() {
+        assertThat(
+            FallbackPolicy.decide(
+                PlaybackFailure.UnsupportedContainer("wmv3"),
+                attempt = 0,
+                remainingResources = 2,
+                enginesTried = setOf(PlaybackEngine.MEDIA3),
+            ),
+        ).isEqualTo(FallbackAction.SwitchEngine(PlaybackEngine.VLC))
+    }
+
+    @Test
+    fun unsupportedContainer_fallsToNextResourceOnceVlcTried() {
+        assertThat(
+            FallbackPolicy.decide(
+                PlaybackFailure.UnsupportedContainer(),
+                attempt = 0,
+                remainingResources = 1,
+                enginesTried = setOf(PlaybackEngine.MEDIA3, PlaybackEngine.VLC),
+            ),
+        ).isEqualTo(FallbackAction.NextResource)
+    }
+
+    @Test
+    fun unsupportedContainer_givesUpWhenBothEnginesTriedAndNoResources() {
+        val giveUp = FallbackPolicy.decide(
+            PlaybackFailure.UnsupportedContainer(),
+            attempt = 0,
+            remainingResources = 0,
+            enginesTried = setOf(PlaybackEngine.MEDIA3, PlaybackEngine.VLC),
+        )
+        assertThat(giveUp).isInstanceOf(FallbackAction.GiveUp::class.java)
+    }
+
+    @Test
+    fun malformedContainer_routesIdenticallyToUnsupportedContainer() {
+        assertThat(
+            FallbackPolicy.decide(
+                PlaybackFailure.MalformedContainer,
+                attempt = 0,
+                remainingResources = 0,
+                enginesTried = setOf(PlaybackEngine.MEDIA3),
+            ),
+        ).isEqualTo(FallbackAction.SwitchEngine(PlaybackEngine.VLC))
+    }
+
+    @Test
+    fun unknownContainerNotSupportedMessage_switchesToVlc() {
+        assertThat(
+            FallbackPolicy.decide(
+                PlaybackFailure.Unknown("Video container not supported by device decoder."),
+                attempt = 0,
+                remainingResources = 0,
+                enginesTried = setOf(PlaybackEngine.MEDIA3),
+            ),
+        ).isEqualTo(FallbackAction.SwitchEngine(PlaybackEngine.VLC))
+    }
+
+    @Test
+    fun genericUnknown_isUnaffectedByEngineSwitching() {
+        assertThat(
+            FallbackPolicy.decide(
+                PlaybackFailure.Unknown("something else entirely"),
+                attempt = 0,
+                remainingResources = 1,
+                enginesTried = setOf(PlaybackEngine.MEDIA3),
+            ),
+        ).isEqualTo(FallbackAction.NextResource)
+    }
+
+    @Test
+    fun preExistingCasesKeepTheirActionWithDefaultEnginesTried() {
+        // Guards the §8.4 signature change: the added parameter must not disturb
+        // the F0/F1 ladder for callers that do not pass it.
+        assertThat(FallbackPolicy.decide(PlaybackFailure.NetworkTimeout, attempt = 0, remainingResources = 0))
+            .isEqualTo(FallbackAction.RetrySameAfter(1_000L))
+        assertThat(FallbackPolicy.decide(PlaybackFailure.DecoderInitFailed, attempt = 0, remainingResources = 1))
+            .isEqualTo(FallbackAction.NextResource)
+        assertThat(FallbackPolicy.decide(PlaybackFailure.AudioTrackInitFailed, attempt = 0, remainingResources = 3))
+            .isEqualTo(FallbackAction.ForceSoftwareAudio)
+    }
 }

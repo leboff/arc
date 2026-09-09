@@ -10,8 +10,15 @@ import com.daydreamvr.player.media.thumb.SizedLruCache
 import com.daydreamvr.player.media.thumb.ThumbnailCache
 import com.daydreamvr.player.media.thumb.UpnpThumbnailSource
 import com.daydreamvr.player.net.LogcatUpnpLog
+import androidx.media3.common.util.UnstableApi
 import com.daydreamvr.playback.DecoderCapsProvider
+import com.daydreamvr.playback.ExoVideoPlayer
+import com.daydreamvr.playback.InMemoryPlaybackEngineStore
 import com.daydreamvr.playback.InMemoryResumeStore
+import com.daydreamvr.playback.PlaybackEngineRouter
+import com.daydreamvr.playback.PlaybackEngineStore
+import com.daydreamvr.playback.VideoPlayer
+import com.daydreamvr.playback.vlc.VlcVideoPlayer
 import com.daydreamvr.upnp.MediaServerDirectory
 import com.daydreamvr.upnp.MediaServerDirectoryImpl
 import com.daydreamvr.upnp.cds.ContentDirectoryClient
@@ -71,6 +78,24 @@ class AppContainer(context: Context) {
 
     /** Shared between [com.daydreamvr.playback.ExoVideoPlayer] and the [EffectRunner]. */
     val resumeStore: InMemoryResumeStore = InMemoryResumeStore()
+
+    /** Sticky per-item engine hint for [PlaybackEngineRouter] (docs/FORMAT_SUPPORT_PLAN.md §6.2). */
+    val playbackEngineStore: PlaybackEngineStore = InMemoryPlaybackEngineStore()
+
+    /**
+     * The app's [VideoPlayer]: a [PlaybackEngineRouter] with Media3 as the primary
+     * engine and a lazily-constructed [VlcVideoPlayer] as the compatibility
+     * fallback (docs/FORMAT_SUPPORT_PLAN.md §5, §8.6). `libvlcjni.so` is not
+     * loaded until a file actually needs it.
+     */
+    @UnstableApi
+    fun createPlayer(onFatalError: (String) -> Unit): VideoPlayer =
+        PlaybackEngineRouter(
+            media3 = ExoVideoPlayer(appContext, resumeStore, onFatalError),
+            vlcFactory = { VlcVideoPlayer(appContext, resumeStore, onFatalError) },
+            engineStore = playbackEngineStore,
+            onFatalError = onFatalError,
+        )
 
     val decoderCapsProvider: DecoderCapsProvider = DecoderCapsProvider()
 

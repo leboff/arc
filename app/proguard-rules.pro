@@ -29,6 +29,18 @@
 }
 
 # ---------------------------------------------------------------------------
+# LibVLC (docs/FORMAT_SUPPORT_PLAN.md §5, §8.6)
+#
+# libvlcjni.so resolves Java classes, fields and methods BY NAME through JNI.
+# Any rename or removal is a native crash with no Java stack trace.
+# ---------------------------------------------------------------------------
+-keep class org.videolan.libvlc.** { *; }
+-dontwarn org.videolan.libvlc.**
+-keepclasseswithmembernames class org.videolan.libvlc.** {
+    native <methods>;
+}
+
+# ---------------------------------------------------------------------------
 # Playback module
 # ---------------------------------------------------------------------------
 -keep class com.daydreamvr.playback.** { *; }

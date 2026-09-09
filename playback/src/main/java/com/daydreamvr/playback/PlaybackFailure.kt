@@ -42,6 +42,24 @@ sealed class PlaybackFailure {
         override val userMessage = "Audio could not be started for this file."
     }
 
+    /**
+     * No demuxer recognised the byte stream (`ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED`).
+     * The strongest signal to switch engines (docs/FORMAT_SUPPORT_PLAN.md §8.4).
+     */
+    data class UnsupportedContainer(val hint: String? = null) : PlaybackFailure() {
+        override val userMessage =
+            "This file's format isn't supported" + (hint?.let { " ($it)" } ?: "") + "."
+    }
+
+    /**
+     * A demuxer recognised the container but the bytes are damaged or truncated
+     * (`ERROR_CODE_PARSING_CONTAINER_MALFORMED`). Worth retrying on LibVLC, whose
+     * demuxers are far more lenient (docs/FORMAT_SUPPORT_PLAN.md §2.8 pt 4).
+     */
+    data object MalformedContainer : PlaybackFailure() {
+        override val userMessage = "This file appears to be damaged."
+    }
+
     /** Anything not otherwise classified. */
     data class Unknown(val detail: String) : PlaybackFailure() {
         override val userMessage = detail.ifBlank { "Playback failed." }

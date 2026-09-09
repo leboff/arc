@@ -33,7 +33,6 @@ import com.daydreamvr.player.state.AppStateMachine
 import com.daydreamvr.player.state.Effect
 import com.daydreamvr.player.state.Event
 import com.daydreamvr.player.state.Settings
-import com.daydreamvr.playback.ExoVideoPlayer
 import com.daydreamvr.playback.ScrubController
 import com.daydreamvr.playback.VideoPlayer
 import com.daydreamvr.player.state.VrScreen
@@ -126,13 +125,9 @@ class VrActivity : ComponentActivity() {
             emit = ::onInputAction,
         )
 
-        player = ExoVideoPlayer(
-            context = this,
-            resumeStore = container.resumeStore,
-            onFatalError = { message ->
-                runOnUiThread { stateMachine.dispatch(Event.Failure("Playback problem", message, canRetry = true)) }
-            },
-        )
+        player = container.createPlayer { message ->
+            runOnUiThread { stateMachine.dispatch(Event.Failure("Playback problem", message, canRetry = true)) }
+        }
 
         stateMachine = AppStateMachine()
         scene = AppScene(

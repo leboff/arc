@@ -232,7 +232,12 @@ class ExoVideoPlayer(
     private fun handleError(error: PlaybackException) {
         val failure = classify(error)
         val remaining = (request?.rankedResources?.size ?: 0) - resourceIndex - 1
-        when (val action = FallbackPolicy.decide(failure, retryAttempt, remaining)) {
+        // A stand-alone ExoVideoPlayer cannot switch engines; tell the policy both
+        // engines are spent so it falls back down the ranked-resource ladder
+        // instead of returning SwitchEngine. When wrapped by PlaybackEngineRouter,
+        // the router intercepts the typed failure on the snapshot first.
+        val enginesTried = setOf(PlaybackEngine.MEDIA3, PlaybackEngine.VLC)
+        when (val action = FallbackPolicy.decide(failure, retryAttempt, remaining, enginesTried)) {
             is FallbackAction.RetrySameAfter -> {
                 retryAttempt++
                 val at = player?.currentPosition ?: 0L
@@ -259,7 +264,11 @@ class ExoVideoPlayer(
                 rebuildPlayerForcingSoftwareAudio()
             }
 
-            is FallbackAction.GiveUp -> giveUp(action.userMessage)
+            is FallbackAction.GiveUp -> giveUp(failure)
+
+            // Unreachable: handleError passes enginesTried = {MEDIA3, VLC}. Kept so
+            // the `when` stays exhaustive over the sealed FallbackAction hierarchy.
+            is FallbackAction.SwitchEngine -> giveUp(failure)
         }
     }
 
@@ -284,10 +293,10 @@ class ExoVideoPlayer(
             PlaybackFailure.DecoderInitFailed
 
         PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ->
-            PlaybackFailure.Unknown("Video container not supported by device decoder.")
+            PlaybackFailure.UnsupportedContainer(lastVideoCodec)
 
         PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ->
-            PlaybackFailure.Unknown("Video stream or container is corrupted.")
+            PlaybackFailure.MalformedContainer
 
         PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
         PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED,
@@ -297,13 +306,15 @@ class ExoVideoPlayer(
         else -> PlaybackFailure.Unknown("${error.errorCodeName}: ${error.message ?: "playback error"}")
     }
 
-    private fun giveUp(message: String) {
+    private fun giveUp(message: String) = giveUp(PlaybackFailure.Unknown(message))
+
+    private fun giveUp(failure: PlaybackFailure) {
         _snapshot.value = _snapshot.value.copy(
             isPlaying = false,
             isBuffering = false,
-            failure = PlaybackFailure.Unknown(message),
+            failure = failure,
         )
-        onFatalError(message)
+        onFatalError(failure.userMessage)
     }
 
     // ---- track overrides --------------------------------------------------
