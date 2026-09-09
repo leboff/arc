@@ -14,6 +14,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -151,6 +152,7 @@ class ExoVideoPlayer(
             .setEnableDecoderFallback(true)
 
         val httpFactory = OkHttpDataSource.Factory(OkHttpClient())
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpFactory)
 
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(30_000, 120_000, 2_500, 5_000)
@@ -160,7 +162,7 @@ class ExoVideoPlayer(
 
         player = ExoPlayer.Builder(context)
             .setRenderersFactory(renderers)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(httpFactory))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .setLoadControl(loadControl)
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .setHandleAudioBecomingNoisy(true)
@@ -192,7 +194,16 @@ class ExoVideoPlayer(
             return
         }
         val p = ensurePlayerAndGet()
-        p.setMediaItem(MediaItem.fromUri(resource.uri.toString()), positionMs.coerceAtLeast(0L))
+        val item = MediaItem.Builder()
+            .setUri(resource.uri.toString())
+            .apply {
+                val mime = resource.mimeType
+                if (!mime.isNullOrBlank() && mime != "*") {
+                    setMimeType(mime)
+                }
+            }
+            .build()
+        p.setMediaItem(item, positionMs.coerceAtLeast(0L))
         p.prepare()
         p.playWhenReady = true
         _snapshot.value = _snapshot.value.copy(
@@ -263,6 +274,12 @@ class ExoVideoPlayer(
 
         PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ->
             PlaybackFailure.DecoderInitFailed
+
+        PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ->
+            PlaybackFailure.Unknown("Video container not supported by device decoder.")
+
+        PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ->
+            PlaybackFailure.Unknown("Video stream or container is corrupted.")
 
         PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
         PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED,

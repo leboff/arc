@@ -24,6 +24,8 @@ import kotlinx.coroutines.launch
 class SetupActivity : ComponentActivity() {
 
     private lateinit var mediaAccessRow: TextView
+    private lateinit var rootLayout: LinearLayout
+    private var crashBanner: android.view.View? = null
 
     /**
      * The runtime storage permission is requested **here only** — a system dialog
@@ -138,6 +140,7 @@ class SetupActivity : ComponentActivity() {
             )
             addView(enterVr, wrap())
         }
+        rootLayout = layout
         setContentView(layout)
         refreshMediaAccessRow()
 
@@ -174,6 +177,60 @@ class SetupActivity : ComponentActivity() {
 
     private fun enterVr() {
         startActivity(Intent(this, VrActivity::class.java))
+    }
+
+    override fun onResume() {
+        super.onResume()
+        showCrashBannerIfPresent()
+    }
+
+    /**
+     * If the previous session crashed, [PlayerApp] persisted the stack trace to
+     * `last_crash.txt`. Surface it in the lobby so a headset crash is not silent.
+     */
+    private fun showCrashBannerIfPresent() {
+        crashBanner?.let { rootLayout.removeView(it); crashBanner = null }
+
+        val crashFile = java.io.File(filesDir, "last_crash.txt")
+        if (!crashFile.exists() || crashFile.length() == 0L) return
+
+        val crashText = runCatching { crashFile.readText() }.getOrNull().orEmpty()
+        val padding = (resources.displayMetrics.density * 12).toInt()
+
+        val banner = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(0xFF7A1F1F.toInt())
+            setPadding(padding, padding, padding, padding)
+            addView(
+                TextView(this@SetupActivity).apply {
+                    text = "The previous session crashed"
+                    setTextColor(0xFFFFFFFF.toInt())
+                    textSize = 15f
+                },
+                wrap(),
+            )
+            addView(
+                TextView(this@SetupActivity).apply {
+                    text = crashText.take(4000)
+                    setTextColor(0xFFFFE0E0.toInt())
+                    textSize = 10f
+                    setPadding(0, padding / 2, 0, padding / 2)
+                },
+                wrap(),
+            )
+            addView(
+                Button(this@SetupActivity).apply {
+                    text = "Clear Crash Log"
+                    setOnClickListener {
+                        crashFile.delete()
+                        showCrashBannerIfPresent()
+                    }
+                },
+                wrap(),
+            )
+        }
+        rootLayout.addView(banner, 0, wrap())
+        crashBanner = banner
     }
 
     private fun refreshMediaAccessRow() {

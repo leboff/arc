@@ -177,7 +177,11 @@ class AppScene(
                 val aspect = snap.dimensions.displayAspect
                 if (aspect > 0f) cylinder.setAspect(aspect)
             }
-            video.updateIfDirty()
+            runCatching {
+                video.updateIfDirty()
+            }.onFailure { t ->
+                android.util.Log.e("AppScene", "Error updating video texture frame", t)
+            }
         }
 
         serverList?.updateTexture()
