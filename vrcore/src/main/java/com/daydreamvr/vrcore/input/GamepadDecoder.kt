@@ -87,7 +87,8 @@ data class RawMotion(
  * and [emit] captures the output.
  */
 class GamepadDecoder(
-    private val bindings: InputBindings,
+    /** Live button map. `:app` swaps this for the A/B-swapped variant when the user asks. */
+    var bindings: InputBindings,
     private val resolver: GamepadProfileResolver,
     private val clock: () -> Long,
     private val emit: (InputAction) -> Unit,

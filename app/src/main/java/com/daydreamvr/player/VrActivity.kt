@@ -24,7 +24,11 @@ import com.daydreamvr.player.input.isGamepad
 import com.daydreamvr.player.input.toGamepadCapabilities
 import com.daydreamvr.player.input.toRawKey
 import com.daydreamvr.player.input.toRawMotion
+import com.daydreamvr.player.perf.ThermalGovernor
+import com.daydreamvr.player.perf.ThermalMonitor
 import com.daydreamvr.player.render.AppScene
+import com.daydreamvr.player.screens.CalibrationScreen
+import com.daydreamvr.player.screens.GamepadCalibration
 import com.daydreamvr.player.state.AppStateMachine
 import com.daydreamvr.player.state.Effect
 import com.daydreamvr.player.state.Event
@@ -60,6 +64,7 @@ class VrActivity : ComponentActivity() {
     private lateinit var scene: AppScene
     private val overlay = DebugOverlay()
     private val scrub = ScrubController()
+    private lateinit var thermalMonitor: ThermalMonitor
 
     /** Reused every frame by the pose provider — read only on the GL thread. */
     private val poseBuffer = FloatArray(16)
@@ -187,6 +192,8 @@ class VrActivity : ComponentActivity() {
         getSystemService(InputManager::class.java)
             .registerInputDeviceListener(inputDeviceListener, mainHandler)
 
+        thermalMonitor = ThermalMonitor(this) { quality -> runOnUiThread { applyQuality(quality) } }
+
         effectRunner.start()
         wireFlows()
         loadPersistedState(container)
@@ -218,11 +225,24 @@ class VrActivity : ComponentActivity() {
     }
 
     private fun applySettings(settings: Settings) {
+        val container = (application as PlayerApp).container
         headTracker.predictionEnabled = settings.predictionEnabled
         headTracker.autoRecenterIdleSeconds = settings.autoRecenterIdleSeconds
-        (application as PlayerApp).container.deviceProfile =
-            DeviceProfiles.byId(settings.deviceProfileId) ?: DeviceProfiles.DEFAULT
+
+        val base = DeviceProfiles.byId(settings.deviceProfileId) ?: DeviceProfiles.DEFAULT
+        container.deviceProfile = CalibrationScreen.overrideProfile(base, settings)
         renderer.ipdM = settings.ipdMm / 1000f
+        renderer.distortionEnabled = settings.distortionCorrection
+
+        decoder.bindings = GamepadCalibration.bindingsFor(container.inputBindings, settings.gamepadAbSwapped)
+    }
+
+    /** Applies a thermal / battery quality step to the renderer (ARCHITECTURE.md §14). */
+    private fun applyQuality(quality: ThermalGovernor.Quality) {
+        renderer.renderScale = quality.renderScale
+        renderer.msaaSamples = quality.msaa
+        renderer.chromaticEnabled = quality.chromatic
+        overlay.log("Thermal: scale ${quality.renderScale} msaa ${quality.msaa} chroma ${quality.chromatic}")
     }
 
     private fun configureImmersive() {
@@ -306,6 +326,7 @@ class VrActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         headTracker.start()
+        thermalMonitor.start()
         glSurfaceView.onResume()
         Choreographer.getInstance().postFrameCallback(frameCallback)
     }
@@ -315,6 +336,7 @@ class VrActivity : ComponentActivity() {
         Choreographer.getInstance().removeFrameCallback(frameCallback)
         player.pause()
         glSurfaceView.onPause()
+        thermalMonitor.stop()
         headTracker.stop()
     }
 

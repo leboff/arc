@@ -33,6 +33,7 @@ class AppContainer(context: Context) {
     /** Long-lived scope for discovery / browse work (ARCHITECTURE.md §4). */
     val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /** Base (Xbox-layout) button map. The gamepad A/B-swap override is applied on top per settings. */
     val inputBindings: InputBindings = InputBindings()
 
     val gamepadProfileResolver: GamepadProfileResolver = GamepadProfileResolver()

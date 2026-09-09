@@ -771,6 +771,40 @@ class SubtitleRenderer(private val panel: PanelSurface) {
 - [ ] Subtitles render legibly on their own panel and do not cross the divider.
 - [ ] Release build: R8 full mode, no crashes across the manual matrix in `docs/TESTING.md`, APK installs and runs on a clean device.
 
+### 6.5 Phase 6 backlog / deviations
+
+- **`CalibrationScreen` / `GamepadCalibrationScreen` are Settings sub-panels, not
+  top-level `VrScreen`s.** They live in their own files (per §6.1) but render as
+  auxiliary panels behind the existing `SettingsScreen` — the calibration grid
+  comes up whenever an optics row (IPD / screen-to-lens / k1 / k2 / divider /
+  distortion) is focused, the gamepad panel when "Gamepad buttons" is. This
+  matches ARCHITECTURE.md §11.4 ("live calibration grid … gamepad
+  remap/calibration" *inside* Settings) and avoids adding a screen to the
+  navigation graph / escape-hatch walk. The live values are new
+  `Settings` fields (`screenToLensMm`, `lensK1`, `lensK2`, `dividerPx`,
+  `distortionCorrection`, `gamepadAbSwapped`), persisted in the settings blob and
+  reset to the table values when the viewer profile changes.
+- **Gamepad A/B calibration is a persisted toggle + a pure detector, not a live
+  "press the button in the top-right position" capture UI.**
+  `GamepadCalibration.isAbSwapped(keyCode)` is the pure decision (JVM-tested) and
+  `applyAbSwap` rewrites the `InputBindings`; `VrActivity` swaps
+  `GamepadDecoder.bindings` from the persisted `Settings.gamepadAbSwapped`. The
+  interactive capture flow (read the raw key code from a prompt and set the flag
+  automatically) is deferred — the manual toggle already satisfies the
+  "8BitDo in Switch mode, survives a reconnect" criterion.
+- **`DistortionGoldenTest`, `AllocationTest`, `RefreshRateTest`** are specified in
+  §6.3 but not added — they need a device/emulator and checked-in golden images.
+  The pure logic under them (`DistortionMesh` round-trip, thermal ladder) is
+  covered by `DistortionMeshTest` / `ThermalGovernorTest`.
+- **`RenderWatchdog` is written but not wired** into `VrActivity` — the GL-thread
+  wedge recovery (recreate `GLSurfaceView`, restore from `AppState`) still needs a
+  per-GL-frame heartbeat hook on `VrRenderer`. `ThermalMonitor` *is* wired
+  (`onResume`/`onPause`, feeds `renderScale`/`msaa`/`chromatic`).
+- **Chromatic aberration correction** stays off in practice: the built-in
+  `DeviceProfile`s carry `chromaticScale = null`, so `chromaticEnabled` on the
+  renderer has no per-channel scale to apply until a profile ships one
+  (ARCHITECTURE.md §6.6 — "off by default").
+
 ---
 
 ## Cross-Phase Definition of Done

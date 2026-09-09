@@ -49,6 +49,12 @@ class SettingsScreen(panel: PanelSurface, theme: Theme) :
         "IPD" -> String.format(Locale.US, "%.1f mm", s.ipdMm)
         "Screen distance" -> String.format(Locale.US, "%.1f m", s.screenDistanceM)
         "Screen size" -> "${s.screenWidthDegrees.toInt()}°"
+        "Screen-to-lens" -> String.format(Locale.US, "%.1f mm", s.screenToLensMm)
+        "Lens k1" -> String.format(Locale.US, "%.2f", s.lensK1)
+        "Lens k2" -> String.format(Locale.US, "%.2f", s.lensK2)
+        "Divider width" -> "${s.dividerPx} px"
+        "Distortion correction" -> onOff(s.distortionCorrection)
+        "Gamepad buttons" -> if (s.gamepadAbSwapped) "A/B swapped" else "Standard"
         "Motion prediction" -> onOff(s.predictionEnabled)
         "Neck model" -> onOff(s.neckModelEnabled)
         "Auto-recenter" -> if (s.autoRecenterIdleSeconds <= 0) "Off" else "${s.autoRecenterIdleSeconds}s idle"

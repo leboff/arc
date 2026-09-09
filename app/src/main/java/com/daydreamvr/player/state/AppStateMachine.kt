@@ -413,17 +413,43 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
         }
 
         private fun adjustSetting(state: AppState, dir: Int): Pair<AppState, List<Effect>> {
+            val s = state.settings
             val settings = when (Settings.ROWS.getOrNull(state.hud.focusIndex)) {
-                "IPD" -> state.settings.copy(ipdMm = (state.settings.ipdMm + dir * 0.5f).coerceIn(52f, 74f))
-                "Screen distance" -> state.settings.copy(screenDistanceM = (state.settings.screenDistanceM + dir * 0.5f).coerceIn(1.5f, 12f))
-                "Screen size" -> state.settings.copy(screenWidthDegrees = (state.settings.screenWidthDegrees + dir * 5f).coerceIn(30f, 110f))
-                "Motion prediction" -> state.settings.copy(predictionEnabled = !state.settings.predictionEnabled)
-                "Neck model" -> state.settings.copy(neckModelEnabled = !state.settings.neckModelEnabled)
-                "Auto-recenter" -> state.settings.copy(autoRecenterIdleSeconds = if (state.settings.autoRecenterIdleSeconds == 0) 30 else 0)
+                "Viewer profile" -> cycleProfile(s, dir)
+                "IPD" -> s.copy(ipdMm = (s.ipdMm + dir * 0.5f).coerceIn(52f, 74f))
+                "Screen distance" -> s.copy(screenDistanceM = (s.screenDistanceM + dir * 0.5f).coerceIn(1.5f, 12f))
+                "Screen size" -> s.copy(screenWidthDegrees = (s.screenWidthDegrees + dir * 5f).coerceIn(30f, 110f))
+                "Screen-to-lens" -> s.copy(screenToLensMm = (s.screenToLensMm + dir * 0.5f).coerceIn(30f, 60f))
+                "Lens k1" -> s.copy(lensK1 = roundHundredth(s.lensK1 + dir * 0.01f).coerceIn(0f, 1f))
+                "Lens k2" -> s.copy(lensK2 = roundHundredth(s.lensK2 + dir * 0.01f).coerceIn(0f, 1f))
+                "Divider width" -> s.copy(dividerPx = (s.dividerPx + dir * 2).coerceIn(0, 40))
+                "Distortion correction" -> s.copy(distortionCorrection = !s.distortionCorrection)
+                "Gamepad buttons" -> s.copy(gamepadAbSwapped = !s.gamepadAbSwapped)
+                "Motion prediction" -> s.copy(predictionEnabled = !s.predictionEnabled)
+                "Neck model" -> s.copy(neckModelEnabled = !s.neckModelEnabled)
+                "Auto-recenter" -> s.copy(autoRecenterIdleSeconds = if (s.autoRecenterIdleSeconds == 0) 30 else 0)
                 else -> return state to noFx()
             }
             return state.copy(settings = settings) to listOf(Effect.ApplySettings(settings))
         }
+
+        /** Cycles the viewer profile and resets the optics overrides to that profile's table values. */
+        private fun cycleProfile(s: Settings, dir: Int): Settings {
+            val all = com.daydreamvr.vrcore.profile.DeviceProfiles.ALL
+            val cur = all.indexOfFirst { it.id == s.deviceProfileId }.coerceAtLeast(0)
+            val step = if (dir >= 0) 1 else all.size - 1
+            val next = all[(cur + step) % all.size]
+            return s.copy(
+                deviceProfileId = next.id,
+                ipdMm = next.interLensDistanceM * 1000f,
+                screenToLensMm = next.screenToLensDistanceM * 1000f,
+                lensK1 = next.distortionK.getOrElse(0) { 0f },
+                lensK2 = next.distortionK.getOrElse(1) { 0f },
+                dividerPx = next.dividerPx,
+            )
+        }
+
+        private fun roundHundredth(v: Float): Float = kotlin.math.round(v * 100f) / 100f
 
         private fun reduceOverlay(state: AppState, overlay: Overlay, action: InputAction): Pair<AppState, List<Effect>> =
             when (overlay) {

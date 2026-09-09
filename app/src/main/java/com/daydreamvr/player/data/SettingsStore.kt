@@ -35,6 +35,12 @@ class SettingsStore(context: Context) {
         val ipdMm: Float = 63f,
         val screenDistanceM: Float = 4f,
         val screenWidthDegrees: Float = 60f,
+        val screenToLensMm: Float = 39f,
+        val lensK1: Float = 0.34f,
+        val lensK2: Float = 0.55f,
+        val dividerPx: Int = 8,
+        val distortionCorrection: Boolean = true,
+        val gamepadAbSwapped: Boolean = false,
     )
 
     @Serializable
@@ -77,6 +83,12 @@ class SettingsStore(context: Context) {
         ipdMm = ipdMm,
         screenDistanceM = screenDistanceM,
         screenWidthDegrees = screenWidthDegrees,
+        screenToLensMm = screenToLensMm,
+        lensK1 = lensK1,
+        lensK2 = lensK2,
+        dividerPx = dividerPx,
+        distortionCorrection = distortionCorrection,
+        gamepadAbSwapped = gamepadAbSwapped,
     )
 
     private fun Settings.toBlob() = SettingsBlob(
@@ -87,5 +99,11 @@ class SettingsStore(context: Context) {
         ipdMm = ipdMm,
         screenDistanceM = screenDistanceM,
         screenWidthDegrees = screenWidthDegrees,
+        screenToLensMm = screenToLensMm,
+        lensK1 = lensK1,
+        lensK2 = lensK2,
+        dividerPx = dividerPx,
+        distortionCorrection = distortionCorrection,
+        gamepadAbSwapped = gamepadAbSwapped,
     )
 }

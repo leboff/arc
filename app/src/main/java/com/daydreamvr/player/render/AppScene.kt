@@ -2,6 +2,8 @@ package com.daydreamvr.player.render
 
 import android.view.Surface
 import com.daydreamvr.player.screens.BrowseScreen
+import com.daydreamvr.player.screens.CalibrationScreen
+import com.daydreamvr.player.screens.GamepadCalibrationScreen
 import com.daydreamvr.player.screens.OverlayRenderer
 import com.daydreamvr.player.screens.PlayerHud
 import com.daydreamvr.player.screens.ServerListScreen
@@ -42,6 +44,8 @@ class AppScene(
     private var serverList: ServerListScreen? = null
     private var browse: BrowseScreen? = null
     private var settings: SettingsScreen? = null
+    private var calibration: CalibrationScreen? = null
+    private var gamepadCal: GamepadCalibrationScreen? = null
     private var hud: PlayerHud? = null
     private var overlay: OverlayRenderer? = null
 
@@ -60,6 +64,8 @@ class AppScene(
             serverList?.let { put("servers", it.redrawCount) }
             browse?.let { put("browse", it.redrawCount) }
             settings?.let { put("settings", it.redrawCount) }
+            calibration?.let { put("calibration", it.redrawCount) }
+            gamepadCal?.let { put("gamepadCal", it.redrawCount) }
             hud?.let { put("hud", it.redrawCount) }
             overlay?.let { put("overlay", it.redrawCount) }
         }
@@ -70,6 +76,8 @@ class AppScene(
         serverList = ServerListScreen(PanelSurface(1024, 640), theme).also { it.onGlCreate() }
         browse = BrowseScreen(PanelSurface(1280, 768), theme).also { it.onGlCreate() }
         settings = SettingsScreen(PanelSurface(1024, 720), theme).also { it.onGlCreate() }
+        calibration = CalibrationScreen(PanelSurface(1536, 1024), theme).also { it.onGlCreate() }
+        gamepadCal = GamepadCalibrationScreen(PanelSurface(1024, 512), theme).also { it.onGlCreate() }
         hud = PlayerHud(PanelSurface(1280, 384), theme).also { it.onGlCreate() }
         overlay = OverlayRenderer(PanelSurface(1024, 768), theme).also { it.onGlCreate() }
 
@@ -97,6 +105,8 @@ class AppScene(
         serverList?.render(state)
         browse?.render(state)
         settings?.render(state)
+        calibration?.render(state)
+        gamepadCal?.render(state)
         hud?.render(state)
         overlay?.render(state)
 
@@ -104,11 +114,15 @@ class AppScene(
             recenterRequested = false
             activePanelAnchor(state.screen)?.snapTo(headYaw)
             overlay?.anchor?.snapTo(headYaw)
+            calibration?.anchor?.snapTo(headYaw)
+            gamepadCal?.anchor?.snapTo(headYaw)
             cylinder.yawRad = headYaw
             sphere.yawRad = headYaw
         } else {
             activePanelAnchor(state.screen)?.update(headYaw, dtSeconds)
             overlay?.anchor?.update(headYaw, dtSeconds)
+            calibration?.anchor?.update(headYaw, dtSeconds)
+            gamepadCal?.anchor?.update(headYaw, dtSeconds)
         }
 
         if (state.screen == VrScreen.PLAYER) {
@@ -123,6 +137,8 @@ class AppScene(
         serverList?.updateTexture()
         browse?.updateTexture()
         settings?.updateTexture()
+        calibration?.updateTexture()
+        gamepadCal?.updateTexture()
         hud?.updateTexture()
         overlay?.updateTexture()
     }
@@ -132,7 +148,14 @@ class AppScene(
         when (state.screen) {
             VrScreen.SERVER_LIST -> serverList?.drawGl(eye, viewM, projM)
             VrScreen.BROWSE -> browse?.drawGl(eye, viewM, projM)
-            VrScreen.SETTINGS -> settings?.drawGl(eye, viewM, projM)
+            VrScreen.SETTINGS -> {
+                val row = com.daydreamvr.player.state.Settings.ROWS.getOrNull(state.hud.focusIndex)
+                if (row in com.daydreamvr.player.state.Settings.CALIBRATION_ROWS) {
+                    calibration?.drawGl(eye, viewM, projM)
+                }
+                if (row == "Gamepad buttons") gamepadCal?.drawGl(eye, viewM, projM)
+                settings?.drawGl(eye, viewM, projM)
+            }
             VrScreen.PLAYER -> {
                 val mode = state.playback.projection
                 if (mode.isSpherical) {
@@ -147,10 +170,12 @@ class AppScene(
     }
 
     override fun onGlDestroy() {
-        listOfNotNull(serverList, browse, settings, hud, overlay).forEach { it.onGlDestroy() }
+        listOfNotNull(serverList, browse, settings, calibration, gamepadCal, hud, overlay).forEach { it.onGlDestroy() }
         serverList = null
         browse = null
         settings = null
+        calibration = null
+        gamepadCal = null
         hud = null
         overlay = null
         cylinder.onGlDestroy()

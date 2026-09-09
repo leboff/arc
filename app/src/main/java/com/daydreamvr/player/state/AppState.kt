@@ -124,6 +124,14 @@ data class Settings(
     val ipdMm: Float = 63f,
     val screenDistanceM: Float = 4f,
     val screenWidthDegrees: Float = 60f,
+    /** Live optics calibration (ARCHITECTURE.md §6.6, Phase 6) — per viewer profile. */
+    val screenToLensMm: Float = 39f,
+    val lensK1: Float = 0.34f,
+    val lensK2: Float = 0.55f,
+    val dividerPx: Int = 8,
+    val distortionCorrection: Boolean = true,
+    /** 8BitDo-in-Switch-mode and friends: swap A/B (and X/Y). Persisted so it survives a reconnect. */
+    val gamepadAbSwapped: Boolean = false,
     val subnetPrefix: String? = null,
 ) {
     companion object {
@@ -133,10 +141,21 @@ data class Settings(
             "IPD",
             "Screen distance",
             "Screen size",
+            "Screen-to-lens",
+            "Lens k1",
+            "Lens k2",
+            "Divider width",
+            "Distortion correction",
+            "Gamepad buttons",
             "Motion prediction",
             "Neck model",
             "Auto-recenter",
             "Forget servers",
+        )
+
+        /** Rows that put the live calibration grid up behind the panel. */
+        val CALIBRATION_ROWS = setOf(
+            "IPD", "Screen-to-lens", "Lens k1", "Lens k2", "Divider width", "Distortion correction",
         )
     }
 }

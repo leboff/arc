@@ -2,6 +2,7 @@ package com.daydreamvr.vrcore.render
 
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
+import com.daydreamvr.vrcore.distortion.DistortionRenderer
 import com.daydreamvr.vrcore.profile.DeviceProfile
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
@@ -21,8 +22,21 @@ class VrRenderer(
     private val poseProvider: () -> FloatArray,
 ) : GLSurfaceView.Renderer {
 
-    /** Supersample factor for the (Phase 6) distortion FBO. Unused until then. */
+    /** Supersample factor for the distortion FBO (ARCHITECTURE.md §6.6). */
     var renderScale: Float = 1.15f
+
+    /**
+     * When true the scene renders per eye into an offscreen [EyeFramebuffer] and
+     * is resolved to the backbuffer through the lens-distortion warp mesh
+     * (ARCHITECTURE.md §6.6). Off ⇒ straight-to-backbuffer, as in Phase 1–5.
+     */
+    var distortionEnabled: Boolean = false
+
+    /** Per-channel radial correction in the distortion resolve pass. */
+    var chromaticEnabled: Boolean = false
+
+    /** MSAA sample count for the eye FBOs; 0 disables. Clamped to `GL_MAX_SAMPLES`. */
+    var msaaSamples: Int = 0
 
     val frameStats: FrameStats = FrameStats()
 
@@ -45,12 +59,19 @@ class VrRenderer(
     private val projM = FloatArray(16)
     private val viewM = FloatArray(16)
 
+    private val leftFbo = EyeFramebuffer()
+    private val rightFbo = EyeFramebuffer()
+    private val distortion = DistortionRenderer()
+
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES30.glClearColor(0f, 0f, 0f, 1f)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
         GLES30.glEnable(GLES30.GL_SCISSOR_TEST)
         lastFrameNs = 0L
         frameStats.reset()
+        leftFbo.release()
+        rightFbo.release()
+        distortion.onGlCreate()
         scene.onGlCreate()
     }
 
@@ -80,22 +101,77 @@ class VrRenderer(
             width, height, displayWidthM, displayHeightM, profile, ipdM,
         )
 
+        if (distortionEnabled) {
+            drawFrameDistorted(left, right, pose, profile)
+        } else {
+            drawFrameDirect(left, right, pose, profile, width, height)
+        }
+    }
+
+    private fun drawFrameDirect(
+        left: EyeParams,
+        right: EyeParams,
+        pose: FloatArray,
+        profile: DeviceProfile,
+        width: Int,
+        height: Int,
+    ) {
         // Clear the whole surface black first so the divider gutter stays black
         // no matter what an eye clears to during development (ARCHITECTURE.md §6.2).
         GLES30.glScissor(0, 0, width, height)
         GLES30.glClearColor(0f, 0f, 0f, 1f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
 
-        drawEye(left, pose, profile)
-        drawEye(right, pose, profile)
+        drawEyeDirect(left, pose, profile)
+        drawEyeDirect(right, pose, profile)
     }
 
-    private fun drawEye(eye: EyeParams, pose: FloatArray, profile: DeviceProfile) {
+    private fun drawEyeDirect(eye: EyeParams, pose: FloatArray, profile: DeviceProfile) {
         val vp = eye.viewport
         GLES30.glViewport(vp.x, vp.y, vp.width, vp.height)
         GLES30.glScissor(vp.x, vp.y, vp.width, vp.height)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
+        drawSceneForEye(eye, pose, profile)
+    }
 
+    private fun drawFrameDistorted(
+        left: EyeParams,
+        right: EyeParams,
+        pose: FloatArray,
+        profile: DeviceProfile,
+    ) {
+        distortion.updateMeshes(left, right, profile)
+
+        renderEyeToTarget(leftFbo, left, pose, profile)
+        renderEyeToTarget(rightFbo, right, pose, profile)
+
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+        GLES30.glViewport(0, 0, surfaceWidth, surfaceHeight)
+        GLES30.glScissor(0, 0, surfaceWidth, surfaceHeight)
+        GLES30.glClearColor(0f, 0f, 0f, 1f)
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
+
+        distortion.render(left, leftFbo.resolve(), chromaticEnabled)
+        distortion.render(right, rightFbo.resolve(), chromaticEnabled)
+    }
+
+    private fun renderEyeToTarget(
+        fbo: EyeFramebuffer,
+        eye: EyeParams,
+        pose: FloatArray,
+        profile: DeviceProfile,
+    ) {
+        fbo.renderScale = renderScale
+        fbo.msaaSamples = msaaSamples
+        fbo.ensure(eye.viewport.width, eye.viewport.height)
+        fbo.bind()
+        GLES30.glScissor(0, 0, fbo.width, fbo.height)
+        GLES30.glClearColor(0f, 0f, 0f, 1f)
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
+        drawSceneForEye(eye, pose, profile)
+    }
+
+    private fun drawSceneForEye(eye: EyeParams, pose: FloatArray, profile: DeviceProfile) {
         StereoLayout.projectionMatrix(projectionFov(eye), near, far, projM)
         StereoLayout.viewMatrix(pose, eye.eyeOffsetX, profile.neckModelM, viewM)
         scene.draw(eye, viewM, projM)
@@ -111,5 +187,8 @@ class VrRenderer(
 
     fun onGlDestroy() {
         scene.onGlDestroy()
+        distortion.onGlDestroy()
+        leftFbo.release()
+        rightFbo.release()
     }
 }
