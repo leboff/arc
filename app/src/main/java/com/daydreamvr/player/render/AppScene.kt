@@ -6,9 +6,11 @@ import com.daydreamvr.player.screens.CalibrationScreen
 import com.daydreamvr.player.screens.GamepadCalibrationScreen
 import com.daydreamvr.player.screens.OverlayRenderer
 import com.daydreamvr.player.screens.PlayerHud
+import com.daydreamvr.player.screens.ScreenPanel
 import com.daydreamvr.player.screens.ServerListScreen
 import com.daydreamvr.player.screens.SettingsScreen
 import com.daydreamvr.player.state.AppState
+import com.daydreamvr.player.state.GazeTarget
 import com.daydreamvr.player.state.VrScreen
 import com.daydreamvr.playback.PlaybackSnapshot
 import com.daydreamvr.vrcore.gl.VideoTexture
@@ -16,28 +18,30 @@ import com.daydreamvr.vrcore.render.CylinderScreen
 import com.daydreamvr.vrcore.render.EyeParams
 import com.daydreamvr.vrcore.render.Scene
 import com.daydreamvr.vrcore.render.SphereScreen
+import com.daydreamvr.vrcore.ui.GazeRay
+import com.daydreamvr.vrcore.ui.GazeStabilizer
+import com.daydreamvr.vrcore.ui.PanelHit
+import com.daydreamvr.vrcore.ui.PanelRaycast
 import com.daydreamvr.vrcore.ui.PanelSurface
+import com.daydreamvr.vrcore.ui.Reticle
 import com.daydreamvr.vrcore.ui.Theme
+import kotlin.math.atan2
 
 /**
- * The Phase 5 scene (ARCHITECTURE.md §6, §11). Replaces `DebugCubeScene`:
+ * The Phase 5/7 scene (ARCHITECTURE.md §6, §11; UI_GAZE_PLAN.md §3.1).
  *
- *  - while browsing it draws whichever in-headset UI panel the [AppState] selects
- *    (server list / browser / settings), world-locked with lazy-follow;
- *  - while playing it draws the [CylinderScreen] (or [SphereScreen] for
- *    equirectangular content) fed by the shared [VideoTexture], plus the
- *    [PlayerHud] when it is visible;
- *  - the [OverlayRenderer] panel rides on top for toasts / dialogs / keyboard.
- *
- * All panel repaints go through `renderIfChanged`, so nothing is redrawn per
- * frame. Runs entirely on the GL thread except [recenter], which just latches a
- * request consumed in [update].
+ * Per frame on the GL thread: repaint any panel whose slice changed, advance the
+ * lazy-follow anchors, run the gaze pipeline (ray → raycast → hit-test →
+ * stabilize → edge-triggered dispatch), then draw the selected screen, the
+ * overlay, and the reticle last in both eyes from the same cached hit.
  */
 class AppScene(
     private val theme: Theme = Theme(),
     private val stateProvider: () -> AppState,
     private val snapshotProvider: () -> PlaybackSnapshot,
-    private val headYawProvider: () -> Float,
+    private val neckOffsetProvider: () -> FloatArray? = { null },
+    private val trackerCalibratedProvider: () -> Boolean = { true },
+    private val onGazeTarget: (GazeTarget?) -> Unit = {},
     private val onVideoSurfaceReady: (Surface) -> Unit,
 ) : Scene {
 
@@ -52,13 +56,29 @@ class AppScene(
     private val cylinder = CylinderScreen()
     private val sphere = SphereScreen()
     private val video = VideoTexture()
+    private val reticle = Reticle()
+
+    private val stabilizer = GazeStabilizer<GazeTarget>()
+    private var lastDispatched: GazeTarget? = null
+    private var listWindowReported = false
 
     private var created = false
-    private var lastFrameNs = 0L
 
     @Volatile private var recenterRequested = false
 
-    /** Redraw counters for every panel — surfaced in the debug overlay (§5.4). */
+    // Reticle placement, written in update, read in draw.
+    private var reticleVisible = false
+    private var reticleAlpha = 1f
+    private var rHitX = 0f
+    private var rHitY = 0f
+    private var rHitZ = -2.5f
+    private var rCamX = 0f
+    private var rCamY = 0f
+    private var rCamZ = 0f
+
+    /** For the debug overlay / measurement (UI_GAZE_PLAN.md §3.3). */
+    var onListWindowMeasured: (com.daydreamvr.player.state.ListWindow) -> Unit = {}
+
     val redrawCounts: Map<String, Int>
         get() = buildMap {
             serverList?.let { put("servers", it.redrawCount) }
@@ -73,7 +93,6 @@ class AppScene(
     override fun onGlCreate() {
         if (created) onGlDestroy()
 
-        // Texture sizes chosen so widthPx/widthM ≈ heightPx/heightM (UI_GAZE_PLAN.md §2.2, F8).
         serverList = ServerListScreen(PanelSurface(1024, 676), theme).also { it.onGlCreate() }
         browse = BrowseScreen(PanelSurface(1280, 800), theme).also { it.onGlCreate() }
         settings = SettingsScreen(PanelSurface(1024, 700), theme).also { it.onGlCreate() }
@@ -85,23 +104,25 @@ class AppScene(
         cylinder.onGlCreate()
         sphere.onGlCreate()
         video.createOnGlThread()
+        reticle.onGlCreate()
         onVideoSurfaceReady(video.surface)
 
-        lastFrameNs = 0L
+        stabilizer.reset()
+        lastDispatched = null
+        listWindowReported = false
         created = true
     }
 
     override fun onGlResize(width: Int, height: Int) = Unit
 
-    /** Latches a recentre; the snap happens on the GL thread in [update]. */
     fun recenter() {
         recenterRequested = true
     }
 
-    override fun update(dtSeconds: Float) {
+    override fun update(dtSeconds: Float, pose: FloatArray) {
         val state = stateProvider()
         val snap = snapshotProvider()
-        val headYaw = headYawProvider()
+        val headYaw = atan2(-pose[8], pose[10])
 
         serverList?.render(state)
         browse?.render(state)
@@ -110,6 +131,8 @@ class AppScene(
         gamepadCal?.render(state)
         hud?.render(state)
         overlay?.render(state)
+
+        reportListWindowOnce()
 
         if (recenterRequested) {
             recenterRequested = false
@@ -125,6 +148,8 @@ class AppScene(
             calibration?.anchor?.update(headYaw, dtSeconds)
             gamepadCal?.anchor?.update(headYaw, dtSeconds)
         }
+
+        runGazePipeline(state, pose, dtSeconds)
 
         if (state.screen == VrScreen.PLAYER) {
             if (snap.videoWidth > 0 && snap.videoHeight > 0) {
@@ -142,6 +167,67 @@ class AppScene(
         gamepadCal?.updateTexture()
         hud?.updateTexture()
         overlay?.updateTexture()
+    }
+
+    private fun reportListWindowOnce() {
+        if (listWindowReported) return
+        val s = settings ?: return
+        val b = browse ?: return
+        listWindowReported = true
+        onListWindowMeasured(
+            com.daydreamvr.player.state.ListWindow(
+                browse = b.visibleRows(),
+                settings = s.visibleRows(),
+                servers = com.daydreamvr.player.state.ListWindow().servers,
+            ),
+        )
+    }
+
+    private fun runGazePipeline(state: AppState, pose: FloatArray, dt: Float) {
+        val surface = activeGazeSurface(state)
+        val calibrated = trackerCalibratedProvider()
+        if (surface == null || !calibrated) {
+            stabilizer.update(null, dt)
+            if (lastDispatched != null) {
+                lastDispatched = null
+                onGazeTarget(null)
+            }
+            reticle.advance(0f, dt)
+            reticleVisible = false
+            return
+        }
+
+        val ray = GazeRay.fromPose(pose, neckOffsetProvider())
+        val geo = surface.gazeGeometry()
+        val hit: PanelHit? = PanelRaycast.intersect(ray, geo)
+        val raw = hit?.let { surface.hitMap.hitTest(it.xPx, it.yPx) }
+        val stable = stabilizer.update(raw, dt)
+        if (stable != lastDispatched) {
+            lastDispatched = stable
+            onGazeTarget(stable)
+        }
+
+        val place = hit ?: PanelRaycast.intersectUnbounded(ray, geo)
+        reticle.advance(if (raw != null) 1f else 0f, dt)
+        if (place != null) {
+            reticleVisible = true
+            reticleAlpha = if (hit != null) 1f else 0.45f
+            rHitX = place.wx; rHitY = place.wy; rHitZ = place.wz
+            rCamX = ray.ox; rCamY = ray.oy; rCamZ = ray.oz
+        } else {
+            reticleVisible = false
+        }
+    }
+
+    /** Overlay beats screen; nothing is interactive in PLAYER without the HUD. */
+    private fun activeGazeSurface(state: AppState): ScreenPanel? {
+        if (overlay?.visible == true) return overlay
+        return when (state.screen) {
+            VrScreen.SERVER_LIST -> serverList
+            VrScreen.BROWSE -> browse
+            VrScreen.SETTINGS -> settings
+            VrScreen.PLAYER -> if (state.hud.visible) hud else null
+        }
     }
 
     override fun draw(eye: EyeParams, viewM: FloatArray, projM: FloatArray) {
@@ -168,6 +254,10 @@ class AppScene(
             }
         }
         if (overlay?.visible == true) overlay?.drawGl(eye, viewM, projM)
+
+        if (reticleVisible) {
+            reticle.draw(viewM, projM, rHitX, rHitY, rHitZ, rCamX, rCamY, rCamZ, reticleAlpha)
+        }
     }
 
     override fun onGlDestroy() {
@@ -182,6 +272,7 @@ class AppScene(
         cylinder.onGlDestroy()
         sphere.onGlDestroy()
         video.release()
+        reticle.onGlDestroy()
         created = false
     }
 

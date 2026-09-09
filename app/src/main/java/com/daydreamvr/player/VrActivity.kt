@@ -131,9 +131,15 @@ class VrActivity : ComponentActivity() {
         scene = AppScene(
             stateProvider = { stateMachine.state.value },
             snapshotProvider = { player.snapshot.value },
-            headYawProvider = { headYawRad },
+            neckOffsetProvider = {
+                if (stateMachine.state.value.settings.neckModelEnabled) container.deviceProfile.neckModelM else null
+            },
+            trackerCalibratedProvider = { headTracker.isCalibrated.value },
+            onGazeTarget = { t -> runOnUiThread { stateMachine.dispatch(Event.GazeMoved(t)) } },
             onVideoSurfaceReady = { surface -> player.attach(surface) },
-        )
+        ).also { s ->
+            s.onListWindowMeasured = { w -> runOnUiThread { stateMachine.dispatch(Event.ListWindowMeasured(w)) } }
+        }
 
         effectRunner = com.daydreamvr.player.state.EffectRunner(
             directory = container.mediaServerDirectory,

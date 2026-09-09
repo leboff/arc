@@ -93,7 +93,7 @@ class VrRenderer(
 
         val profile = profileProvider()
         val pose = poseProvider()
-        scene.update(dt)
+        scene.update(dt, pose)
 
         if (width == 0 || height == 0) return
 
