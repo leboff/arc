@@ -72,6 +72,69 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                 state.copy(settings = event.settings) to noFx()
             is Event.ResumePrompt -> reduceResumePrompt(state, event)
             is Event.Input -> reduceInput(state, event.action)
+            is Event.GazeMoved -> reduceGaze(state, event.target)
+            is Event.ListWindowMeasured -> state.copy(listWindow = event.window) to noFx()
+        }
+
+        /**
+         * Gaze moves focus; the controller still selects (UI_GAZE_PLAN.md §3.3).
+         * Always stores [target] as the hover highlight, and — when it names the
+         * active surface — moves that surface's focus index to it. Never touches a
+         * scrollTop: gaze can only reach rows that are already drawn.
+         */
+        private fun reduceGaze(state: AppState, target: GazeTarget?): Pair<AppState, List<Effect>> {
+            val s = state.copy(gaze = target)
+            if (target == null) return s to noFx()
+
+            val overlay = state.overlay
+            if (overlay != null) {
+                return when {
+                    target is GazeTarget.DialogButton && overlay is Overlay.Confirm ->
+                        s.copy(overlay = overlay.copy(focusIndex = target.index.coerceIn(0, overlay.options.size - 1)))
+                    target is GazeTarget.KeyboardKey && overlay is Overlay.Keyboard ->
+                        s.copy(overlay = overlay.copy(kb = overlay.kb.copy(cursorRow = target.row, cursorCol = target.col)))
+                    else -> s // targets for the screen behind the overlay are ignored
+                } to noFx()
+            }
+
+            return when (target) {
+                is GazeTarget.ServerRow ->
+                    if (state.screen == VrScreen.SERVER_LIST) {
+                        s.copy(serverFocusIndex = target.index.coerceIn(0, maxOf(0, state.serverRowCount - 1)))
+                    } else {
+                        s
+                    }
+                is GazeTarget.BrowseRow -> {
+                    val f = state.browse.top
+                    if (state.screen == VrScreen.BROWSE && f != null) {
+                        s.copy(
+                            browse = state.browse.replaceTop(
+                                f.copy(focusIndex = target.index.coerceIn(0, maxOf(0, f.rows.size - 1))),
+                            ),
+                        )
+                    } else {
+                        s
+                    }
+                }
+                is GazeTarget.SettingsRow ->
+                    if (state.screen == VrScreen.SETTINGS) {
+                        s.copy(hud = state.hud.copy(focusIndex = target.index.coerceIn(0, Settings.ROWS.size - 1)))
+                    } else {
+                        s
+                    }
+                is GazeTarget.HudControl ->
+                    if (state.screen == VrScreen.PLAYER) {
+                        s.copy(
+                            hud = state.hud.copy(
+                                focusIndex = target.index.coerceIn(0, HudState.CONTROLS.size - 1),
+                                lastInputAtMs = state.nowMs,
+                            ),
+                        )
+                    } else {
+                        s
+                    }
+                is GazeTarget.DialogButton, is GazeTarget.KeyboardKey -> s
+            } to noFx()
         }
 
         // ---- non-input events ------------------------------------------------
@@ -259,9 +322,16 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             state.copy(screen = VrScreen.SERVER_LIST, browse = BrowseState()) to noFx()
 
         private fun reduceServerList(state: AppState, action: InputAction): Pair<AppState, List<Effect>> = when (action) {
-            is InputAction.Nav -> state.copy(
-                serverFocusIndex = moveFocus(state.serverFocusIndex, action.dir, state.serverRowCount),
-            ) to noFx()
+            is InputAction.Nav -> {
+                val fi = moveFocus(state.serverFocusIndex, action.dir, state.serverRowCount)
+                val scrollAnchor = fi.coerceAtMost(maxOf(0, state.servers.size - 1))
+                state.copy(
+                    serverFocusIndex = fi,
+                    serverScrollTop = clampScroll(
+                        scrollAnchor, state.serverScrollTop, state.servers.size, state.listWindow.servers,
+                    ),
+                ) to noFx()
+            }
 
             is InputAction.Confirm -> {
                 val i = state.serverFocusIndex
@@ -403,8 +473,15 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
 
         private fun reduceSettings(state: AppState, action: InputAction): Pair<AppState, List<Effect>> = when (action) {
             is InputAction.Nav -> when (action.dir) {
-                InputAction.Dir.UP, InputAction.Dir.DOWN ->
-                    state.copy(hud = state.hud.copy(focusIndex = moveFocus(state.hud.focusIndex, action.dir, Settings.ROWS.size))) to noFx()
+                InputAction.Dir.UP, InputAction.Dir.DOWN -> {
+                    val fi = moveFocus(state.hud.focusIndex, action.dir, Settings.ROWS.size)
+                    state.copy(
+                        hud = state.hud.copy(focusIndex = fi),
+                        settingsScrollTop = clampScroll(
+                            fi, state.settingsScrollTop, Settings.ROWS.size, state.listWindow.settings,
+                        ),
+                    ) to noFx()
+                }
                 else -> adjustSetting(state, if (action.dir == InputAction.Dir.RIGHT) 1 else -1)
             }
             is InputAction.Confirm -> adjustSetting(state, 1)

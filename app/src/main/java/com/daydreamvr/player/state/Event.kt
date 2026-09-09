@@ -17,6 +17,12 @@ sealed interface Event {
     /** A decoded gamepad action. */
     data class Input(val action: InputAction) : Event
 
+    /** The gaze reticle moved onto a new target (or off everything). Edge-triggered. */
+    data class GazeMoved(val target: GazeTarget?) : Event
+
+    /** Emitted once by `AppScene` at GL-create from the real measured layouts (fixes F5). */
+    data class ListWindowMeasured(val window: ListWindow) : Event
+
     /** The frame clock. Drives HUD auto-hide and toast expiry — no clock is read in `reduce`. */
     data class Tick(val nowMs: Long) : Event
 

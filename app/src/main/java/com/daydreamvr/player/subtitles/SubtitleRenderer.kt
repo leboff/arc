@@ -38,7 +38,7 @@ class SubtitleRenderer(
             canvas.drawColor(0, PorterDuff.Mode.CLEAR)
             if (cues.isEmpty()) return@renderIfChanged
 
-            val sizePx = AngularMetrics.textSizePx(clamped, panel.widthPx, theme.panelWidthDegrees)
+            val sizePx = metrics.px(clamped)
             val fill = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = theme.textColor
                 textSize = sizePx

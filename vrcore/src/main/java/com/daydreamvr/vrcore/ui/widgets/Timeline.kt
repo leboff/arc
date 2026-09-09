@@ -2,16 +2,18 @@ package com.daydreamvr.vrcore.ui.widgets
 
 import android.graphics.Canvas
 import android.graphics.Paint
-import com.daydreamvr.vrcore.ui.AngularMetrics
+import com.daydreamvr.vrcore.ui.PanelMetrics
+import com.daydreamvr.vrcore.ui.Space
 import com.daydreamvr.vrcore.ui.Theme
+import com.daydreamvr.vrcore.ui.Type
 import java.util.Locale
 
 /**
- * The player HUD scrubber: elapsed / remaining, a track with buffered + played
- * fill, and a preview marker while a trigger scrub is held (ARCHITECTURE.md
- * §10.4, §11.4).
+ * The player HUD scrubber: elapsed / −remaining in tabular numerals, a track with
+ * buffered + played fill, a knob at the play head, and a preview marker while a
+ * trigger scrub is held (ARCHITECTURE.md §10.4, §11.4).
  */
-class Timeline(private val theme: Theme, private val panelWidthPx: Int) {
+class Timeline(private val theme: Theme, private val metrics: PanelMetrics) {
 
     private val progress = ProgressBar(theme)
 
@@ -25,22 +27,26 @@ class Timeline(private val theme: Theme, private val panelWidthPx: Int) {
         bufferedMs: Long,
         previewMs: Long?,
     ) {
-        val labelSize = AngularMetrics.textSizePx(1.5f, panelWidthPx, theme.panelWidthDegrees)
+        val labelSize = metrics.px(Type.numeral.degrees)
         val dur = durationMs.coerceAtLeast(1L)
-        val barTop = top + labelSize + 12f
-        val barH = labelSize * 0.6f
+        val barTop = top + labelSize + metrics.px(Space.S)
+        val barH = labelSize * 0.5f
 
-        progress.draw(canvas, left, barTop, width, barH, bufferedMs.toFloat() / dur, theme.progressTrackColor)
-        progress.draw(canvas, left, barTop, width, barH, positionMs.toFloat() / dur, theme.progressFillColor)
+        progress.draw(canvas, left, barTop, width, barH, bufferedMs.toFloat() / dur, theme.progressTrack)
+        progress.draw(canvas, left, barTop, width, barH, positionMs.toFloat() / dur, theme.accent)
+
+        val shown = previewMs ?: positionMs
+        val headX = left + width * (shown.toFloat() / dur).coerceIn(0f, 1f)
+        canvas.drawCircle(headX, barTop + barH / 2f, metrics.px(0.35f), theme.fillPaint(theme.accent))
 
         previewMs?.let {
             val x = left + width * (it.toFloat() / dur).coerceIn(0f, 1f)
-            canvas.drawCircle(x, barTop + barH / 2f, barH, theme.fillPaint(theme.accentColor))
+            val marker = theme.text(Type.numeral, metrics, theme.accentText).apply { textAlign = Paint.Align.CENTER }
+            canvas.drawText(formatMs(it), x, barTop - metrics.px(Space.S), marker)
         }
 
-        val elapsed = theme.textPaint(labelSize, theme.textColor)
-        val remain = theme.textPaint(labelSize, theme.dimTextColor).apply { textAlign = Paint.Align.RIGHT }
-        val shown = previewMs ?: positionMs
+        val elapsed = theme.text(Type.numeral, metrics)
+        val remain = theme.text(Type.numeral, metrics, theme.textSecondary).apply { textAlign = Paint.Align.RIGHT }
         canvas.drawText(formatMs(shown), left, top + labelSize, elapsed)
         canvas.drawText("-" + formatMs((durationMs - shown).coerceAtLeast(0L)), left + width, top + labelSize, remain)
     }

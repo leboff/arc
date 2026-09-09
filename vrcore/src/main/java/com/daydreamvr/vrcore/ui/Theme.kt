@@ -74,8 +74,8 @@ class Theme {
     @Deprecated("Use PanelMetrics.widthDegrees", ReplaceWith("metrics.widthDegrees"))
     val panelWidthDegrees: Float = 42f
 
-    private val medium: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-    private val regular: Typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+    private val medium: Typeface by lazy { Typeface.create("sans-serif-medium", Typeface.NORMAL) }
+    private val regular: Typeface by lazy { Typeface.create("sans-serif", Typeface.NORMAL) }
 
     fun textPaint(sizePx: Float, color: Int = textPrimary, bold: Boolean = false): Paint =
         Paint(Paint.ANTI_ALIAS_FLAG).apply {

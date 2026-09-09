@@ -1,45 +1,60 @@
 package com.daydreamvr.player.screens
 
 import com.daydreamvr.player.state.AppState
+import com.daydreamvr.player.state.GazeTarget
 import com.daydreamvr.player.state.Settings
 import com.daydreamvr.player.state.VrScreen
-import com.daydreamvr.vrcore.ui.AngularMetrics
+import com.daydreamvr.vrcore.ui.HitMap
+import com.daydreamvr.vrcore.ui.HitRegion
 import com.daydreamvr.vrcore.ui.PanelSurface
+import com.daydreamvr.vrcore.ui.Space
 import com.daydreamvr.vrcore.ui.Theme
 import com.daydreamvr.vrcore.ui.widgets.ListView
 import java.util.Locale
 
 /**
- * The in-VR settings panel (ARCHITECTURE.md §11.4): viewer profile, IPD, screen
- * distance / size, motion prediction, neck model, auto-recenter, and a
- * "forget servers" action. Left/right on a row adjusts it; the reducer owns the
- * clamping and emits [com.daydreamvr.player.state.Effect.ApplySettings].
+ * The in-VR settings panel (ARCHITECTURE.md §11.4): two-column single-line rows,
+ * scrolled by [AppState.settingsScrollTop] so every row — including "Forget
+ * servers" — is reachable and drawn (UI_GAZE_PLAN.md §5.4, fixes F3).
  */
 class SettingsScreen(panel: PanelSurface, theme: Theme) :
     ScreenPanel(panel, theme, panelWidthM = 2.20f, panelHeightM = 1.50f) {
 
-    private val list = ListView(theme, panel.widthPx)
+    private val list = ListView(theme, metrics)
+
+    /** Rows that fit the list body — the reducer's scroll window (F5). */
+    fun visibleRows(): Int = list.visibleRowCount(bodyHeight(), twoLine = false)
+
+    private fun bodyHeight(): Float {
+        val contentTop = metrics.px(Space.L) + metrics.px(2.3f) * 1.1f + metrics.px(Space.M)
+        return bodyBottom() - contentTop
+    }
 
     fun render(state: AppState) {
         if (state.screen != VrScreen.SETTINGS) return
-        val key = listOf(state.settings, state.hud.focusIndex)
+        val key = listOf(state.settings, state.hud.focusIndex, state.settingsScrollTop, state.gaze)
         renderIfChanged(key) { canvas ->
-            canvas.panelBackground(theme, panel.widthPx, panel.heightPx)
-            val titleSize = AngularMetrics.textSizePx(2.4f, panel.widthPx, theme.panelWidthDegrees)
-            canvas.drawText(
-                "Settings",
-                theme.paddingPx,
-                theme.paddingPx + titleSize,
-                theme.textPaint(titleSize, theme.textColor, bold = true),
-            )
+            canvas.panelBackground(theme, metrics)
+            val contentTop = drawHeader(canvas, "Settings")
+            val left = contentLeft()
+            val width = metrics.widthPx - left * 2
+            val height = bodyBottom() - contentTop
 
-            val rows = Settings.ROWS.map { ListView.Row(title = it, subtitle = valueFor(it, state.settings)) }
-            list.draw(
-                canvas, rows, state.hud.focusIndex, scrollTop = 0,
-                left = theme.paddingPx,
-                top = theme.paddingPx * 2 + titleSize,
-                width = panel.widthPx - theme.paddingPx * 2,
-                height = panel.heightPx - theme.paddingPx * 3 - titleSize,
+            val entries = Settings.ROWS.map { row ->
+                ListView.Entry.Item(
+                    title = row,
+                    trailing = valueFor(row, state.settings),
+                    style = if (row == "Forget servers") ListView.Style.DANGER else ListView.Style.DEFAULT,
+                )
+            }
+            val layout = list.measureLayout(entries, contentTop, height, left, width, state.settingsScrollTop)
+            val hover = (state.gaze as? GazeTarget.SettingsRow)?.index
+            list.draw(canvas, entries, layout, state.hud.focusIndex, hover, state.settingsScrollTop)
+
+            hitMap = HitMap(
+                layout.boxes.map { box ->
+                    HitRegion(box.left, box.top, box.right, box.bottom, GazeTarget.SettingsRow(box.index))
+                },
             )
         }
     }

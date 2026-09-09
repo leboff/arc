@@ -5,8 +5,8 @@ import com.daydreamvr.player.state.AppState
 import com.daydreamvr.player.state.Settings
 import com.daydreamvr.player.state.VrScreen
 import com.daydreamvr.vrcore.profile.DeviceProfile
-import com.daydreamvr.vrcore.ui.AngularMetrics
 import com.daydreamvr.vrcore.ui.PanelSurface
+import com.daydreamvr.vrcore.ui.Space
 import com.daydreamvr.vrcore.ui.Theme
 import java.util.Locale
 
@@ -46,7 +46,7 @@ class CalibrationScreen(panel: PanelSurface, theme: Theme) :
         val h = panel.heightPx
         canvas.drawColor(GRID_BG)
         val line = theme.strokePaint(GRID_LINE, 3f)
-        val axis = theme.strokePaint(theme.accentColor, 5f)
+        val axis = theme.strokePaint(theme.accent, 5f)
 
         for (i in 0..GRID_COLUMNS) {
             val x = w * i.toFloat() / GRID_COLUMNS
@@ -60,19 +60,19 @@ class CalibrationScreen(panel: PanelSurface, theme: Theme) :
         val cx = w / 2f
         val cy = h / 2f
         val r = h / 12f
-        canvas.drawCircle(cx, cy, r, theme.strokePaint(theme.accentColor, 5f))
+        canvas.drawCircle(cx, cy, r, theme.strokePaint(theme.accent, 5f))
     }
 
     private fun drawReadout(canvas: Canvas, s: Settings) {
-        val size = AngularMetrics.textSizePx(1.6f, panel.widthPx, theme.panelWidthDegrees)
-        val paint = theme.textPaint(size, theme.textColor, bold = true)
+        val size = metrics.px(1.6f)
+        val paint = theme.textPaint(size, theme.textPrimary, bold = true)
         val text = String.format(
             Locale.US,
             "IPD %.1f mm   lens %.1f mm   k1 %.2f   k2 %.2f   divider %d px   distortion %s",
             s.ipdMm, s.screenToLensMm, s.lensK1, s.lensK2, s.dividerPx,
             if (s.distortionCorrection) "on" else "off",
         )
-        canvas.drawText(text, theme.paddingPx, panel.heightPx - theme.paddingPx, paint)
+        canvas.drawText(text, metrics.px(Space.XL), panel.heightPx - metrics.px(Space.XL), paint)
     }
 
     companion object {

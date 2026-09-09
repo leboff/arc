@@ -6,8 +6,8 @@ import com.daydreamvr.player.state.Settings
 import com.daydreamvr.player.state.VrScreen
 import com.daydreamvr.vrcore.input.InputBindings
 import com.daydreamvr.vrcore.input.RawKey
-import com.daydreamvr.vrcore.ui.AngularMetrics
 import com.daydreamvr.vrcore.ui.PanelSurface
+import com.daydreamvr.vrcore.ui.Space
 import com.daydreamvr.vrcore.ui.Theme
 
 /**
@@ -37,28 +37,29 @@ class GamepadCalibrationScreen(panel: PanelSurface, theme: Theme) :
     }
 
     private fun draw(canvas: Canvas, swapped: Boolean) {
-        canvas.panelBackground(theme, panel.widthPx, panel.heightPx)
-        val titleSize = AngularMetrics.textSizePx(2.4f, panel.widthPx, theme.panelWidthDegrees)
-        val bodySize = AngularMetrics.textSizePx(1.6f, panel.widthPx, theme.panelWidthDegrees)
-        var y = theme.paddingPx + titleSize
-        canvas.drawText("Gamepad buttons", theme.paddingPx, y, theme.textPaint(titleSize, theme.textColor, bold = true))
+        canvas.panelBackground(theme, metrics)
+        val titleSize = metrics.px(2.3f)
+        val bodySize = metrics.px(1.6f)
+        val pad = metrics.px(Space.XL)
+        var y = pad + titleSize
+        canvas.drawText("Gamepad buttons", pad, y, theme.textPaint(titleSize, theme.textPrimary, bold = true))
 
-        y += theme.paddingPx + bodySize
+        y += pad + bodySize
         canvas.drawText(
             if (swapped) "Mapping: A/B and X/Y swapped (Switch layout)" else "Mapping: standard (Xbox layout)",
-            theme.paddingPx, y, theme.textPaint(bodySize, theme.accentColor),
+            pad, y, theme.textPaint(bodySize, theme.accentText),
         )
 
-        y += theme.paddingPx + bodySize
+        y += pad + bodySize
         canvas.drawText(
             "Confirm = ${if (swapped) "B" else "A"}    Back = ${if (swapped) "A" else "B"}",
-            theme.paddingPx, y, theme.textPaint(bodySize, theme.textColor),
+            pad, y, theme.textPaint(bodySize, theme.textPrimary),
         )
 
-        y += theme.paddingPx + bodySize
+        y += pad + bodySize
         canvas.drawText(
             "Left / right to toggle if the lower face button doesn't confirm.",
-            theme.paddingPx, y, theme.textPaint(bodySize, theme.dimTextColor),
+            pad, y, theme.textPaint(bodySize, theme.textSecondary),
         )
     }
 }

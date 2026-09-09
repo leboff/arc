@@ -1,11 +1,18 @@
 package com.daydreamvr.player.screens
 
 import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.RectF
 import com.daydreamvr.vrcore.input.InputAction
-import com.daydreamvr.vrcore.ui.AngularMetrics
+import com.daydreamvr.vrcore.ui.Icon
+import com.daydreamvr.vrcore.ui.Icons
+import com.daydreamvr.vrcore.ui.PanelMetrics
 import com.daydreamvr.vrcore.ui.PanelSurface
+import com.daydreamvr.vrcore.ui.Radius
+import com.daydreamvr.vrcore.ui.Space
+import com.daydreamvr.vrcore.ui.Surfaces
 import com.daydreamvr.vrcore.ui.Theme
+import com.daydreamvr.vrcore.ui.Type
 
 /**
  * The in-VR text entry grid (ARCHITECTURE.md §11.5). D-pad / stick moves the
@@ -30,44 +37,74 @@ class VrKeyboard(private val panel: PanelSurface? = null, private val theme: The
 
     // ---- rendering --------------------------------------------------------
 
-    fun render(surface: PanelSurface, s: KeyboardState, subnetPrefix: String?) {
-        surface.draw { canvas -> drawInto(canvas, surface.widthPx, surface.heightPx, s, subnetPrefix) }
-    }
+    /** Where key (row, col) sits, so the overlay can publish gaze hit regions. */
+    data class KeyBox(val row: Int, val col: Int, val left: Float, val top: Float, val right: Float, val bottom: Float)
 
-    /** Draws straight onto [canvas] — used by [com.daydreamvr.player.screens.OverlayRenderer]. */
-    fun draw(canvas: Canvas, widthPx: Int, heightPx: Int, s: KeyboardState, subnetPrefix: String?) =
-        drawInto(canvas, widthPx, heightPx, s, subnetPrefix)
-
-    private fun drawInto(canvas: Canvas, w: Int, h: Int, s: KeyboardState, subnetPrefix: String?) {
-        canvas.drawColor(theme.panelColor)
-        val titleSize = AngularMetrics.textSizePx(2.4f, w, theme.panelWidthDegrees)
-        val keySize = AngularMetrics.textSizePx(2.8f, w, theme.panelWidthDegrees)
-        canvas.drawText(s.text.ifEmpty { "_" }, theme.paddingPx, theme.paddingPx + titleSize, theme.textPaint(titleSize, theme.accentColor, bold = true))
+    /**
+     * Draws the keyboard onto [canvas] and returns the per-key rectangles.
+     * Labels are centred with [Paint.Align.CENTER] on a `FontMetrics`-derived
+     * baseline (fixes F10) and non-alpha keys use icons, not glyphs.
+     */
+    fun draw(
+        canvas: Canvas,
+        metrics: PanelMetrics,
+        s: KeyboardState,
+        subnetPrefix: String?,
+        cursorOnly: Boolean = false,
+    ): List<KeyBox> {
+        val w = metrics.widthPx
+        val h = metrics.heightPx
+        val pad = metrics.px(Space.XL)
+        val titleSize = metrics.px(Type.screenTitle.degrees)
+        if (!cursorOnly) {
+            val field = RectF(pad, pad, w - pad, pad + titleSize * 1.6f)
+            Surfaces.card(canvas, field, metrics, theme, Radius.CARD)
+            canvas.drawText(
+                s.text.ifEmpty { "|" },
+                pad + metrics.px(Space.M),
+                field.centerY() + titleSize * 0.35f,
+                theme.text(Type.screenTitle, metrics, theme.accentText),
+            )
+        }
 
         val grid = layout(s.numericMode)
-        val top = theme.paddingPx * 2 + titleSize
-        val cellW = (w - theme.paddingPx * 2) / (grid.maxOf { it.size })
-        val cellH = (h - top - theme.paddingPx) / grid.size
+        val top = pad * 2 + titleSize
+        val gap = metrics.px(Space.XS)
+        val cols = grid.maxOf { it.size }
+        val cellW = (w - pad * 2 - gap * (cols - 1)) / cols
+        val cellH = (h - top - pad - gap * (grid.size - 1)) / grid.size
+        val keyPaint = theme.text(Type.rowTitle, metrics).apply { textAlign = Paint.Align.CENTER }
+        val boxes = ArrayList<KeyBox>()
+
         grid.forEachIndexed { r, row ->
             row.forEachIndexed { c, key ->
-                val x = theme.paddingPx + c * cellW
-                val y = top + r * cellH
-                val rect = RectF(x + 4f, y + 4f, x + cellW - 4f, y + cellH - 4f)
+                val x = pad + c * (cellW + gap)
+                val y = top + r * (cellH + gap)
+                val rect = RectF(x, y, x + cellW, y + cellH)
+                boxes += KeyBox(r, c, rect.left, rect.top, rect.right, rect.bottom)
                 if (r == s.cursorRow && c == s.cursorCol) {
-                    canvas.drawRoundRect(rect, 10f, 10f, theme.fillPaint(theme.focusFillColor))
-                    canvas.drawRoundRect(rect, 10f, 10f, theme.strokePaint(theme.focusStrokeColor, 3f))
+                    Surfaces.focus(canvas, rect, metrics, theme, Radius.CHIP)
+                } else if (!cursorOnly) {
+                    Surfaces.chip(canvas, rect, metrics, theme, accented = false)
                 }
-                canvas.drawText(label(key), x + cellW / 2 - keySize / 2, y + cellH / 2 + keySize / 3, theme.textPaint(keySize))
+                if (cursorOnly) return@forEachIndexed
+                val icon = iconFor(key)
+                if (icon != Icon.NONE) {
+                    Icons.draw(canvas, icon, rect.centerX(), rect.centerY(), metrics.px(1.8f), keyPaint)
+                } else if (key.isNotEmpty()) {
+                    val fm = keyPaint.fontMetrics
+                    canvas.drawText(key, rect.centerX(), rect.centerY() - (fm.ascent + fm.descent) / 2f, keyPaint)
+                }
             }
         }
+        return boxes
     }
 
-    private fun label(key: String): String = when (key) {
-        "\b" -> "⌫"
-        "\n" -> "↵"
-        " " -> "␣"
-        "" -> ""
-        else -> key
+    private fun iconFor(key: String): Icon = when (key) {
+        "\b" -> Icon.BACKSPACE
+        "\n" -> Icon.ENTER
+        " " -> Icon.SPACE
+        else -> Icon.NONE
     }
 
     companion object {

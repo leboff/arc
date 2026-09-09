@@ -1,13 +1,22 @@
 package com.daydreamvr.player.screens
 
 import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
 import android.opengl.Matrix
+import com.daydreamvr.player.state.GazeTarget
 import com.daydreamvr.vrcore.render.EyeParams
+import com.daydreamvr.vrcore.ui.HitMap
 import com.daydreamvr.vrcore.ui.PanelAnchor
+import com.daydreamvr.vrcore.ui.PanelGeometry
 import com.daydreamvr.vrcore.ui.PanelMetrics
 import com.daydreamvr.vrcore.ui.PanelQuad
 import com.daydreamvr.vrcore.ui.PanelSurface
+import com.daydreamvr.vrcore.ui.Radius
+import com.daydreamvr.vrcore.ui.Space
+import com.daydreamvr.vrcore.ui.Surfaces
 import com.daydreamvr.vrcore.ui.Theme
+import com.daydreamvr.vrcore.ui.Type
 
 /**
  * Shared plumbing for the in-headset screens: a [PanelSurface] drawn on a curved
@@ -54,6 +63,28 @@ abstract class ScreenPanel(
      */
     val modelYawRad: Float get() = -anchor.yawRad
 
+    /**
+     * Pixel → [GazeTarget] map for this panel, rebuilt on every repaint and read
+     * by the gaze pass on the GL thread (UI_GAZE_PLAN.md §2.4). `@Volatile` is
+     * insurance against panel painting ever moving to its own thread; today both
+     * happen on the GL thread and it only changes inside `renderIfChanged`.
+     */
+    @Volatile
+    var hitMap: HitMap<GazeTarget> = HitMap.empty()
+        protected set
+
+    /** The world placement the gaze raycast tests against. */
+    open fun gazeGeometry(): PanelGeometry = PanelGeometry(
+        modelYawRad = modelYawRad,
+        distanceM = anchor.distanceM,
+        widthM = panelWidthM,
+        heightM = panelHeightM,
+        verticalOffsetM = verticalOffsetM,
+        widthPx = panel.widthPx,
+        heightPx = panel.heightPx,
+        curved = true,
+    )
+
     var redrawCount: Int = 0
         private set
 
@@ -89,17 +120,52 @@ abstract class ScreenPanel(
         quad.draw(eye, viewM, projM, model, panel, alpha)
     }
 
+    /** A right-aligned status pill shown in the header. */
+    data class Chip(val label: String, val accented: Boolean = false)
+
+    /**
+     * Shared header: title top-left, optional status chip top-right, a divider
+     * underneath (UI_GAZE_PLAN.md §5.1). Returns the y at which content starts so
+     * headers stop drifting between screens.
+     */
+    protected fun drawHeader(canvas: Canvas, title: String, chip: Chip? = null): Float {
+        val padL = metrics.px(Space.XL)
+        val padT = metrics.px(Space.L)
+        val titleDeg = Type.screenTitle.degrees
+        val titlePx = metrics.px(titleDeg)
+        val baseline = padT + titlePx * 0.82f
+        canvas.drawText(title, padL, baseline, theme.text(Type.screenTitle, metrics))
+
+        chip?.let {
+            val cp = theme.text(Type.chip, metrics, if (it.accented) theme.textOnAccent else theme.accentText)
+            cp.textAlign = Paint.Align.RIGHT
+            val tw = cp.measureText(it.label)
+            val padChip = metrics.px(Space.S)
+            val rect = RectF(
+                metrics.widthPx - padL - tw - padChip * 2,
+                padT,
+                metrics.widthPx - padL,
+                padT + titlePx * 1.05f,
+            )
+            Surfaces.chip(canvas, rect, metrics, theme, accented = it.accented)
+            canvas.drawText(it.label, rect.right - padChip, baseline, cp)
+        }
+
+        val contentTop = padT + titlePx * 1.1f + metrics.px(Space.M)
+        Surfaces.divider(canvas, padL, metrics.widthPx - padL, contentTop - metrics.px(Space.S), theme)
+        return contentTop
+    }
+
+    protected fun contentLeft(): Float = metrics.px(Space.XL)
+
+    protected fun bodyBottom(): Float = metrics.heightPx - metrics.px(Space.L)
+
     private companion object {
         val INVALID = Any()
     }
 }
 
-/** Fills the panel with the themed background + rounded frame. */
-fun Canvas.panelBackground(theme: Theme, widthPx: Int, heightPx: Int) {
-    drawColor(theme.panelColor)
-    drawRoundRect(
-        4f, 4f, widthPx - 4f, heightPx - 4f,
-        theme.cornerRadiusPx, theme.cornerRadiusPx,
-        theme.strokePaint(theme.panelStrokeColor, 2f),
-    )
+/** Fills the panel with the glassmorphic background (gradient + sheen + hairline). */
+fun Canvas.panelBackground(theme: Theme, metrics: PanelMetrics) {
+    Surfaces.panel(this, metrics, theme)
 }

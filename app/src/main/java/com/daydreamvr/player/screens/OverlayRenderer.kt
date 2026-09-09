@@ -5,21 +5,26 @@ import android.graphics.Paint
 import android.graphics.RectF
 import com.daydreamvr.player.state.AppState
 import com.daydreamvr.player.state.DiscoveryState
+import com.daydreamvr.player.state.GazeTarget
 import com.daydreamvr.player.state.Overlay
 import com.daydreamvr.player.state.VrScreen
-import com.daydreamvr.vrcore.ui.AngularMetrics
+import com.daydreamvr.vrcore.ui.HitMap
+import com.daydreamvr.vrcore.ui.HitRegion
+import com.daydreamvr.vrcore.ui.Icon
+import com.daydreamvr.vrcore.ui.Icons
 import com.daydreamvr.vrcore.ui.PanelSurface
+import com.daydreamvr.vrcore.ui.Radius
+import com.daydreamvr.vrcore.ui.Space
+import com.daydreamvr.vrcore.ui.Surfaces
 import com.daydreamvr.vrcore.ui.Theme
+import com.daydreamvr.vrcore.ui.Type
 
 /**
  * The top-most panel: transient toasts, blocking error / confirm dialogs, the
- * VR keyboard, and a plain "working…" spinner line during discovery or buffering
- * (ARCHITECTURE.md §11.4, §11.5). Sits closer than the content panels so it reads
- * as an overlay. [visible] tells [com.daydreamvr.player.render.AppScene] whether
- * to draw it at all.
+ * VR keyboard, and an ambient "working…" line (ARCHITECTURE.md §11.4, §11.5).
  */
 class OverlayRenderer(panel: PanelSurface, theme: Theme) :
-    ScreenPanel(panel, theme, panelWidthM = 2.0f, panelHeightM = 1.3f) {
+    ScreenPanel(panel, theme, panelWidthM = 2.00f, panelHeightM = 1.30f) {
 
     private val keyboard = VrKeyboard(theme = theme)
 
@@ -30,16 +35,27 @@ class OverlayRenderer(panel: PanelSurface, theme: Theme) :
         val overlay = state.overlay
         val ambient = ambientMessage(state)
         visible = overlay != null || ambient != null
-        val key = listOf(overlayKey(overlay), ambient)
+        val key = listOf(overlayKey(overlay), ambient, state.gaze)
         renderIfChanged(key) { canvas ->
             canvas.drawColor(0)
+            val regions = ArrayList<HitRegion<GazeTarget>>()
             when (overlay) {
-                is Overlay.Keyboard -> keyboard.draw(canvas, panel.widthPx, panel.heightPx, overlay.kb, state.settings.subnetPrefix)
-                is Overlay.Error -> drawDialog(canvas, overlay.title, overlay.message, if (overlay.canRetry) listOf("Retry", "Dismiss") else listOf("OK"), 0)
-                is Overlay.Confirm -> drawDialog(canvas, overlay.title, null, overlay.options, overlay.focusIndex)
+                is Overlay.Keyboard -> {
+                    canvas.drawColor(theme.scrim)
+                    canvas.panelBackground(theme, metrics)
+                    val boxes = keyboard.draw(canvas, metrics, overlay.kb, state.settings.subnetPrefix)
+                    boxes.forEach { b ->
+                        regions += HitRegion(b.left, b.top, b.right, b.bottom, GazeTarget.KeyboardKey(b.row, b.col))
+                    }
+                }
+                is Overlay.Error ->
+                    drawDialog(canvas, overlay.title, overlay.message, if (overlay.canRetry) listOf("Retry", "Dismiss") else listOf("OK"), 0, state.gaze, regions, error = true)
+                is Overlay.Confirm ->
+                    drawDialog(canvas, overlay.title, null, overlay.options, overlay.focusIndex, state.gaze, regions, error = false)
                 is Overlay.Toast -> drawToast(canvas, overlay.message)
                 null -> ambient?.let { drawToast(canvas, it) }
             }
+            hitMap = HitMap(regions)
         }
     }
 
@@ -50,42 +66,57 @@ class OverlayRenderer(panel: PanelSurface, theme: Theme) :
     }
 
     private fun drawToast(canvas: Canvas, message: String) {
-        val size = AngularMetrics.textSizePx(1.8f, panel.widthPx, theme.panelWidthDegrees)
-        val paint = theme.textPaint(size, theme.textColor).apply { textAlign = Paint.Align.CENTER }
-        val w = paint.measureText(message)
-        val cx = panel.widthPx / 2f
-        val cy = panel.heightPx * 0.82f
-        val box = RectF(cx - w / 2f - theme.paddingPx, cy - size, cx + w / 2f + theme.paddingPx, cy + size * 0.6f)
-        canvas.drawRoundRect(box, theme.cornerRadiusPx, theme.cornerRadiusPx, theme.fillPaint(theme.panelColor))
-        canvas.drawText(message, cx, cy, paint)
+        val paint = theme.text(Type.rowTitle, metrics).apply { textAlign = Paint.Align.CENTER }
+        val w = paint.measureText(message).coerceAtMost(metrics.widthPx * 0.8f)
+        val cx = metrics.widthPx / 2f
+        val cy = metrics.heightPx * 0.82f
+        val padH = metrics.px(Space.L)
+        val box = RectF(cx - w / 2f - padH, cy - metrics.px(1.4f), cx + w / 2f + padH, cy + metrics.px(1.0f))
+        Surfaces.card(canvas, box, metrics, theme, Radius.CHIP)
+        canvas.drawText(message, cx, cy + metrics.px(0.5f), paint)
     }
 
-    private fun drawDialog(canvas: Canvas, title: String, body: String?, options: List<String>, focusIndex: Int) {
-        val pad = theme.paddingPx
-        val titleSize = AngularMetrics.textSizePx(2.1f, panel.widthPx, theme.panelWidthDegrees)
-        val bodySize = AngularMetrics.textSizePx(1.6f, panel.widthPx, theme.panelWidthDegrees)
+    private fun drawDialog(
+        canvas: Canvas,
+        title: String,
+        body: String?,
+        options: List<String>,
+        focusIndex: Int,
+        gaze: GazeTarget?,
+        regions: MutableList<HitRegion<GazeTarget>>,
+        error: Boolean,
+    ) {
+        canvas.drawColor(theme.scrim)
+        val pad = metrics.px(Space.XL)
+        val rect = RectF(pad, pad, metrics.widthPx - pad, metrics.heightPx - pad)
+        Surfaces.card(canvas, rect, metrics, theme, Radius.CARD)
 
-        val panelRect = RectF(pad, pad, panel.widthPx - pad, panel.heightPx - pad)
-        canvas.drawRoundRect(panelRect, theme.cornerRadiusPx, theme.cornerRadiusPx, theme.fillPaint(theme.panelColor))
-        canvas.drawRoundRect(panelRect, theme.cornerRadiusPx, theme.cornerRadiusPx, theme.strokePaint(theme.panelStrokeColor, 2f))
-
-        var y = pad * 2 + titleSize
-        canvas.drawText(title, pad * 2, y, theme.textPaint(titleSize, theme.textColor, bold = true))
+        val titlePaint = theme.text(Type.screenTitle, metrics)
+        var y = pad * 2 + metrics.px(Type.screenTitle.degrees)
+        if (error) {
+            Icons.draw(canvas, Icon.WARNING, rect.left + pad + metrics.px(1.0f), y - metrics.px(0.8f), metrics.px(2.0f), theme.text(Type.rowTitle, metrics, theme.warning))
+            canvas.drawText(title, rect.left + pad + metrics.px(2.6f), y, titlePaint)
+        } else {
+            canvas.drawText(title, rect.left + pad, y, titlePaint)
+        }
         body?.let {
-            y += bodySize * 1.6f
-            canvas.drawText(it, pad * 2, y, theme.textPaint(bodySize, theme.dimTextColor))
+            y += metrics.px(Type.rowSubtitle.degrees) * 1.7f
+            canvas.drawText(it, rect.left + pad, y, theme.text(Type.rowSubtitle, metrics))
         }
 
-        val btnTop = panel.heightPx - pad * 2 - bodySize * 2.2f
-        val btnW = (panel.widthPx - pad * 4) / options.size
+        val btnH = metrics.px(2.8f)
+        val gap = metrics.px(Space.M)
+        val btnTop = rect.bottom - pad - btnH
+        val btnW = (rect.width() - pad * 2 - gap * (options.size - 1)) / options.size
+        val hover = (gaze as? GazeTarget.DialogButton)?.index
         options.forEachIndexed { i, opt ->
-            val left = pad * 2 + btnW * i
-            val rect = RectF(left + 6f, btnTop, left + btnW - 6f, btnTop + bodySize * 2f)
-            val focused = i == focusIndex
-            canvas.drawRoundRect(rect, 12f, 12f, theme.fillPaint(if (focused) theme.focusFillColor else theme.progressTrackColor))
-            if (focused) canvas.drawRoundRect(rect, 12f, 12f, theme.strokePaint(theme.focusStrokeColor, 3f))
-            val p = theme.textPaint(bodySize, theme.textColor).apply { textAlign = Paint.Align.CENTER }
-            canvas.drawText(opt, rect.centerX(), rect.centerY() + bodySize / 3f, p)
+            val left = rect.left + pad + i * (btnW + gap)
+            val br = RectF(left, btnTop, left + btnW, btnTop + btnH)
+            Surfaces.card(canvas, br, metrics, theme, Radius.CHIP)
+            if (i == focusIndex) Surfaces.focus(canvas, br, metrics, theme, Radius.CHIP) else if (i == hover) Surfaces.hover(canvas, br, metrics, theme, Radius.CHIP)
+            val p = theme.text(Type.rowTitle, metrics, theme.accentText).apply { textAlign = Paint.Align.CENTER }
+            canvas.drawText(opt, br.centerX(), br.centerY() + metrics.px(0.55f), p)
+            regions += HitRegion(br.left, br.top, br.right, br.bottom, GazeTarget.DialogButton(i))
         }
     }
 

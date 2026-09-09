@@ -22,6 +22,13 @@ data class AppState(
     val hud: HudState = HudState(),
     val overlay: Overlay? = null,
     val settings: Settings = Settings(),
+    /** What the gaze reticle is currently over; drives the hover style (UI_GAZE_PLAN.md §3.3). */
+    val gaze: GazeTarget? = null,
+    /** Scroll offsets the renderer honours so focused rows are always drawn (F3/F4). */
+    val settingsScrollTop: Int = 0,
+    val serverScrollTop: Int = 0,
+    /** Visible row counts measured by the renderer, so `reduce()` scrolls what is drawn (F5). */
+    val listWindow: ListWindow = ListWindow(),
     /** Carries an item + its resume position between a resume prompt and its answer. */
     val pendingResume: PendingResume? = null,
     /** Last known wall-clock ms, updated by [Event.Tick]; time never read directly. */
@@ -39,6 +46,9 @@ data class AppState(
 }
 
 enum class VrScreen { SERVER_LIST, BROWSE, PLAYER, SETTINGS }
+
+/** Visible row counts the renderer measured for each scrolling list (UI_GAZE_PLAN.md §3.3, F5). */
+data class ListWindow(val browse: Int = 8, val settings: Int = 8, val servers: Int = 5)
 
 enum class DiscoveryState { IDLE, RUNNING, FAILED }
 
