@@ -52,24 +52,26 @@ class HudReducerTest {
     }
 
     @Test
-    fun cancelOnAVisibleHudLeavesThePlayer() {
+    fun cancelOnAVisibleHudDismissesTheHud() {
         val d = inPlayer()
         d.input(Fx.right)
         assertThat(d.state.hud.visible).isTrue()
 
-        // B with the HUD up is the escape hatch back to the list (no endless toggle).
+        // B with the HUD up dismisses the controls so video is clean fullscreen.
         d.input(Fx.cancel)
-        assertThat(d.state.screen).isNotEqualTo(VrScreen.PLAYER)
+        assertThat(d.state.screen).isEqualTo(VrScreen.PLAYER)
         assertThat(d.state.hud.visible).isFalse()
-        assertThat(d.stepEffects).contains(Effect.StopPlayback)
     }
 
     @Test
-    fun cancelOnAHiddenHudJustShowsIt() {
+    fun cancelOnAHiddenHudLeavesThePlayer() {
         val d = inPlayer()
+        assertThat(d.state.hud.visible).isFalse()
+
+        // B with no HUD is the escape hatch back to the list.
         d.input(Fx.cancel)
-        assertThat(d.state.hud.visible).isTrue()
-        assertThat(d.state.screen).isEqualTo(VrScreen.PLAYER)
+        assertThat(d.state.screen).isNotEqualTo(VrScreen.PLAYER)
+        assertThat(d.stepEffects).contains(Effect.StopPlayback)
     }
 
     @Test

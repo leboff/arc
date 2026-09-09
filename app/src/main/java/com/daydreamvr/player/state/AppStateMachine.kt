@@ -426,15 +426,14 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
         private fun reducePlayerInput(state: AppState, action: InputAction): Pair<AppState, List<Effect>> {
             val hud = state.hud
             if (!hud.visible) {
-                val shown = state.copy(hud = hud.copy(visible = true, lastInputAtMs = state.nowMs))
                 return when (action) {
-                    is InputAction.Confirm -> shown to noFx()
-                    is InputAction.Cancel -> shown to noFx()
-                    else -> applyPlayerAction(shown, action)
+                    is InputAction.Cancel -> leavePlayer(state)
+                    is InputAction.Confirm -> state.copy(hud = hud.copy(visible = true, lastInputAtMs = state.nowMs)) to noFx()
+                    else -> applyPlayerAction(state.copy(hud = hud.copy(visible = true, lastInputAtMs = state.nowMs)), action)
                 }
             }
             return when (action) {
-                is InputAction.Cancel -> leavePlayer(state)
+                is InputAction.Cancel -> state.copy(hud = hud.copy(visible = false)) to noFx()
                 else -> applyPlayerAction(state.copy(hud = hud.copy(lastInputAtMs = state.nowMs)), action)
             }
         }
