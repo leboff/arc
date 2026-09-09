@@ -37,6 +37,16 @@ class AngularMetricsTest {
     }
 
     @Test
+    fun asymmetricComfortBoxIsLenientDownwardAndOnHeadTurn() {
+        // Eyes-only: 30° horizontal is out; head-turn: it is in.
+        assertThat(AngularMetrics.isWithinComfortBoxAsym(30f, 0f)).isFalse()
+        assertThat(AngularMetrics.isWithinComfortBoxAsym(30f, 0f, allowHeadTurn = true)).isTrue()
+        // −27° down is comfortable; +27° up is not.
+        assertThat(AngularMetrics.isWithinComfortBoxAsym(0f, -27f)).isTrue()
+        assertThat(AngularMetrics.isWithinComfortBoxAsym(0f, 27f)).isFalse()
+    }
+
+    @Test
     fun degenerateInputsReturnZeroRatherThanNaN() {
         assertThat(AngularMetrics.textSizePx(1.5f, 0, 60f)).isEqualTo(0f)
         assertThat(AngularMetrics.textSizePx(1.5f, 1024, 0f)).isEqualTo(0f)

@@ -21,7 +21,9 @@ class PanelAspectTest {
 
     private val panels = listOf(
         Panel("ServerListScreen", 1024, 676, 2.20f, 1.45f),
-        Panel("BrowseScreen", 1280, 800, 2.40f, 1.50f),
+        // Three-column browse panel, re-derived for isotropy (UI_REDESIGN_REVIEWED_PLAN.md §2, R2).
+        Panel("BrowseScreen", 1536, 800, 2.80f, 1.458333f),
+        Panel("SystemDock", 672, 176, 1.00f, 0.261905f),
         Panel("SettingsScreen", 1024, 700, 2.20f, 1.50f),
         Panel("PlayerHud", 1280, 332, 2.40f, 0.62f),
         Panel("OverlayRenderer", 1024, 668, 2.00f, 1.30f),
