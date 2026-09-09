@@ -89,8 +89,8 @@ class OkHttpTransport(private val client: OkHttpClient) : HttpTransport {
     ): HttpResponse {
         val request = Request.Builder()
             .url(url.toURL())
-            .header("User-Agent", HttpTransport.USER_AGENT)
             .headers(headers.toHeaders())
+            .header("User-Agent", HttpTransport.USER_AGENT)
             .post(body.toRequestBody(contentType.toMediaTypeOrNull()))
             .build()
         return execute(request, maxBytes)

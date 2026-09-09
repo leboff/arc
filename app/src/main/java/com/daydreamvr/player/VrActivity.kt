@@ -329,6 +329,14 @@ class VrActivity : ComponentActivity() {
         return super.onGenericMotionEvent(event)
     }
 
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.action == MotionEvent.ACTION_UP) {
+            stateMachine.dispatch(Event.Input(InputAction.Confirm(long = false)))
+            return true
+        }
+        return super.onTouchEvent(event)
+    }
+
     override fun onResume() {
         super.onResume()
         headTracker.start()

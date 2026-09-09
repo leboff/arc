@@ -24,6 +24,7 @@ class ContentDirectoryClientImpl(
         objectId: String,
         page: PageRequest,
     ): Result<BrowseResult> = runCatching {
+        log.d(TAG, "Browsing server ${server.friendlyName} (objectId=$objectId) at ${server.controlUrl}")
         val body = SoapEnvelope.browseRequest(
             serviceType = server.contentDirectoryServiceType,
             objectId = objectId,
@@ -37,9 +38,11 @@ class ContentDirectoryClientImpl(
             headers = mapOf("SOAPACTION" to SoapEnvelope.soapAction(server.contentDirectoryServiceType, "Browse")),
         )
         val text = response.bodyString()
+        log.d(TAG, "Browse response HTTP ${response.status}, body length: ${text.length}")
 
         if (response.status != 200) {
             SoapEnvelope.parseFault(text)?.let { fault ->
+                log.w(TAG, "SOAP Fault: ${fault.errorCode} - ${fault.errorDescription}")
                 throw UpnpError.fromFaultCode(fault.errorCode, fault.errorDescription)
             }
             throw UpnpError.HttpStatus(response.status)
@@ -47,16 +50,19 @@ class ContentDirectoryClientImpl(
 
         // A 200 can still carry a fault on some servers.
         SoapEnvelope.parseFault(text)?.let { fault ->
+            log.w(TAG, "SOAP Fault in 200: ${fault.errorCode} - ${fault.errorDescription}")
             throw UpnpError.fromFaultCode(fault.errorCode, fault.errorDescription)
         }
 
         val args = SoapEnvelope.parseResponse(text, "Browse")
         val didl = DidlParser.unescapeResultPayload(args["Result"].orEmpty())
         val objects = DidlParser.parse(didl).getOrElse { cause ->
+            log.w(TAG, "DIDL parse error: ${cause.message}", cause)
             throw UpnpError.MalformedResponse("could not parse DIDL-Lite: ${cause.message}", cause)
         }
         val containers = objects.filterIsInstance<DidlContainer>()
         val items = objects.filterIsInstance<DidlItem>()
+        log.d(TAG, "Browse parsed ${containers.size} containers and ${items.size} items for $objectId")
         BrowseResult(
             objectId = objectId,
             containers = containers,

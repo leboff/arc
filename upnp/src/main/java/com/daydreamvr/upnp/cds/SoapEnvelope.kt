@@ -21,7 +21,7 @@ data class SoapFault(val errorCode: Int, val errorDescription: String?)
 object SoapEnvelope {
 
     private const val CRLF = "\r\n"
-    const val CONTENT_TYPE = "text/xml; charset=\"utf-8\""
+    const val CONTENT_TYPE = "text/xml; charset=utf-8"
 
     fun soapAction(serviceType: String, action: String): String = "\"$serviceType#$action\""
 
