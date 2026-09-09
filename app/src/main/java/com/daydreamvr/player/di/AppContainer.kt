@@ -5,6 +5,10 @@ import com.daydreamvr.player.data.ServerStore
 import com.daydreamvr.player.data.SettingsStore
 import com.daydreamvr.player.net.AndroidNetworkBinder
 import com.daydreamvr.player.media.local.LocalMediaRepository
+import com.daydreamvr.player.media.thumb.LocalThumbnailSource
+import com.daydreamvr.player.media.thumb.SizedLruCache
+import com.daydreamvr.player.media.thumb.ThumbnailCache
+import com.daydreamvr.player.media.thumb.UpnpThumbnailSource
 import com.daydreamvr.player.net.LogcatUpnpLog
 import com.daydreamvr.playback.DecoderCapsProvider
 import com.daydreamvr.playback.InMemoryResumeStore
@@ -70,7 +74,22 @@ class AppContainer(context: Context) {
 
     val decoderCapsProvider: DecoderCapsProvider = DecoderCapsProvider()
 
-    // ---- Local media (UI_REDESIGN_REVIEWED_PLAN.md §8) ---------------------------
+    // ---- Local media (UI_REDESIGN_REVIEWED_PLAN.md §8, §9) ----------------------
 
     val localMediaRepository: LocalMediaRepository = LocalMediaRepository(appContext, appScope)
+
+    /** Byte-bounded thumbnail LRU: 1/8 of heap, capped at 24 MB (ARCHITECTURE.md §14). */
+    private val thumbnailBudgetKb: Int = minOf(
+        (Runtime.getRuntime().maxMemory() / 1024 / 8).toInt(),
+        24 * 1024,
+    )
+
+    val thumbnailCache: ThumbnailCache = ThumbnailCache(
+        cache = SizedLruCache(thumbnailBudgetKb) { bmp -> (bmp.allocationByteCount / 1024).coerceAtLeast(1) },
+        sources = listOf(
+            LocalThumbnailSource(appContext.contentResolver),
+            UpnpThumbnailSource(httpTransport),
+        ),
+        scope = appScope,
+    )
 }
