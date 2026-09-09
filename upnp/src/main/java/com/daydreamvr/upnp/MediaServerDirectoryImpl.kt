@@ -131,6 +131,7 @@ class MediaServerDirectoryImpl(
 
         /** Probe order covers Gerbera, MiniDLNA, Synology, Plex, UMS, Jellyfin (ARCHITECTURE.md §9.6). */
         val PROBE_PATHS = listOf(
+            "/upnp/description.xml",
             "/description.xml",
             "/rootDesc.xml",
             "/dev/description.xml",

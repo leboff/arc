@@ -62,13 +62,23 @@ class AndroidNetworkBinder(
                 ?: error("no multicast-capable network interface")
 
             val group = InetAddress.getByName(SsdpClient.GROUP)
-            socket = MulticastSocket(SsdpClient.PORT).apply {
-                reuseAddress = true
+            socket = runCatching {
+                MulticastSocket(null).apply {
+                    reuseAddress = true
+                    bind(InetSocketAddress(SsdpClient.PORT))
+                }
+            }.getOrElse {
+                Log.w(TAG, "failed to bind multicast port 1900, falling back to ephemeral port", it)
+                MulticastSocket(null).apply {
+                    reuseAddress = true
+                    bind(null)
+                }
+            }.apply {
                 soTimeout = POLL_TIMEOUT_MS
                 network?.bindSocket(this)
                 runCatching { networkInterface = nif }
                 timeToLive = 4
-                joinGroup(InetSocketAddress(group, SsdpClient.PORT), nif)
+                runCatching { joinGroup(InetSocketAddress(group, SsdpClient.PORT), nif) }
             }
 
             return block(socket, nif)
@@ -95,7 +105,7 @@ class AndroidNetworkBinder(
         var callback: ConnectivityManager.NetworkCallback? = null
         val network = try {
             withTimeoutOrNull(networkRequestTimeoutMs) {
-                suspendCancellableCoroutine<Network> { cont ->
+                suspendCancellableCoroutine<Network?> { cont ->
                     val request = NetworkRequest.Builder()
                         .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
                         .build()
@@ -105,7 +115,11 @@ class AndroidNetworkBinder(
                         }
                     }
                     callback = cb
-                    connectivityManager.requestNetwork(request, cb)
+                    val requested = runCatching { connectivityManager.requestNetwork(request, cb) }
+                    if (requested.isFailure) {
+                        Log.w(TAG, "connectivityManager.requestNetwork failed", requested.exceptionOrNull())
+                        if (cont.isActive) cont.resume(null)
+                    }
                     cont.invokeOnCancellation {
                         runCatching { connectivityManager.unregisterNetworkCallback(cb) }
                     }

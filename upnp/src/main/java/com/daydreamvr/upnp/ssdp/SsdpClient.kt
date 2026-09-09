@@ -131,6 +131,8 @@ class SsdpClient(
         val DEFAULT_TARGETS = listOf(
             "urn:schemas-upnp-org:device:MediaServer:1",
             "urn:schemas-upnp-org:service:ContentDirectory:1",
+            "ssdp:all",
+            "upnp:rootdevice",
         )
 
         private const val RECEIVE_BUFFER = 16 * 1024
