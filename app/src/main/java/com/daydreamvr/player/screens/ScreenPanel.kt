@@ -29,8 +29,14 @@ abstract class ScreenPanel(
     protected val theme: Theme,
     panelWidthM: Float = 2.2f,
     panelHeightM: Float = 1.35f,
+    /**
+     * Viewing distance, metres. The panel's curve radius is slaved to this so the
+     * closed-form gaze raycast stays a quadratic (F7). The detached dock sits at a
+     * smaller distance than the browse panel (UI_REDESIGN_REVIEWED_PLAN.md §3.2, R4).
+     */
+    distanceM: Float = 2.5f,
 ) {
-    val anchor = PanelAnchor()
+    val anchor = PanelAnchor(distanceM = distanceM)
 
     protected val panelWidthM: Float = panelWidthM
     protected val panelHeightM: Float = panelHeightM

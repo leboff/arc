@@ -20,7 +20,7 @@ import com.daydreamvr.vrcore.render.Scene
 import com.daydreamvr.vrcore.render.SphereScreen
 import com.daydreamvr.vrcore.ui.GazeRay
 import com.daydreamvr.vrcore.ui.GazeStabilizer
-import com.daydreamvr.vrcore.ui.PanelHit
+import com.daydreamvr.vrcore.ui.GazeSurfaces
 import com.daydreamvr.vrcore.ui.PanelRaycast
 import com.daydreamvr.vrcore.ui.PanelSurface
 import com.daydreamvr.vrcore.ui.Reticle
@@ -47,6 +47,13 @@ class AppScene(
 
     private var serverList: ServerListScreen? = null
     private var browse: BrowseScreen? = null
+
+    /**
+     * The detached system dock — a second interactive surface on `BROWSE` at a
+     * smaller radius than [browse]. Its anchor is *slaved* to the browse anchor
+     * each frame so the two move as one rigid assembly (§3.1). Wired in M8.
+     */
+    private var dock: ScreenPanel? = null
     private var settings: SettingsScreen? = null
     private var calibration: CalibrationScreen? = null
     private var gamepadCal: GamepadCalibrationScreen? = null
@@ -149,6 +156,10 @@ class AppScene(
             gamepadCal?.anchor?.update(headYaw, dtSeconds)
         }
 
+        // Slave the dock to the browse panel AFTER the browse anchor has moved, so
+        // the two never shear apart during a head turn (§3.1).
+        browse?.let { dock?.anchor?.snapTo(it.anchor.yawRad) }
+
         runGazePipeline(state, pose, dtSeconds)
 
         if (state.screen == VrScreen.PLAYER) {
@@ -184,9 +195,9 @@ class AppScene(
     }
 
     private fun runGazePipeline(state: AppState, pose: FloatArray, dt: Float) {
-        val surface = activeGazeSurface(state)
+        val surfaces = activeGazeSurfaces(state)
         val calibrated = trackerCalibratedProvider()
-        if (surface == null || !calibrated) {
+        if (surfaces.isEmpty() || !calibrated) {
             stabilizer.update(null, dt)
             if (lastDispatched != null) {
                 lastDispatched = null
@@ -198,20 +209,29 @@ class AppScene(
         }
 
         val ray = GazeRay.fromPose(pose, neckOffsetProvider())
-        val geo = surface.gazeGeometry()
-        val hit: PanelHit? = PanelRaycast.intersect(ray, geo)
-        val raw = hit?.let { surface.hitMap.hitTest(it.xPx, it.yPx) }
-        val stable = stabilizer.update(raw, dt)
+
+        // Nearest hit wins. A ray that pierces two bounded quads reports the
+        // smaller distanceM; a hit on the panel but off every HitRegion yields a
+        // null target that must NOT fall through to a farther surface (§3.3).
+        val resolved = GazeSurfaces.resolve(
+            ray,
+            surfaces.map { s -> GazeSurfaces.Surface(s.gazeGeometry()) { x, y -> s.hitMap.hitTest(x, y) } },
+        )
+        val best = resolved.hit
+        val bestTarget = resolved.target
+
+        val stable = stabilizer.update(bestTarget, dt)
         if (stable != lastDispatched) {
             lastDispatched = stable
             onGazeTarget(stable)
         }
 
-        val place = hit ?: PanelRaycast.intersectUnbounded(ray, geo)
-        reticle.advance(if (raw != null) 1f else 0f, dt)
+        // Reticle: the winning hit, else an unbounded solve against the primary surface.
+        val place = best ?: PanelRaycast.intersectUnbounded(ray, surfaces.first().gazeGeometry())
+        reticle.advance(if (bestTarget != null) 1f else 0f, dt)
         if (place != null) {
             reticleVisible = true
-            reticleAlpha = if (hit != null) 1f else 0.45f
+            reticleAlpha = if (best != null) 1f else 0.45f
             rHitX = place.wx; rHitY = place.wy; rHitZ = place.wz
             rCamX = ray.ox; rCamY = ray.oy; rCamZ = ray.oz
         } else {
@@ -219,14 +239,17 @@ class AppScene(
         }
     }
 
-    /** Overlay beats screen; nothing is interactive in PLAYER without the HUD. */
-    private fun activeGazeSurface(state: AppState): ScreenPanel? {
-        if (overlay?.visible == true) return overlay
+    /**
+     * Interactive surfaces for this state, in paint order (nearest-hit breaks
+     * ties by list order). Overlay, when up, suppresses all others.
+     */
+    private fun activeGazeSurfaces(state: AppState): List<ScreenPanel> {
+        if (overlay?.visible == true) return listOfNotNull(overlay)
         return when (state.screen) {
-            VrScreen.SERVER_LIST -> serverList
-            VrScreen.BROWSE -> browse
-            VrScreen.SETTINGS -> settings
-            VrScreen.PLAYER -> if (state.hud.visible) hud else null
+            VrScreen.SERVER_LIST -> listOfNotNull(serverList)
+            VrScreen.BROWSE -> listOfNotNull(browse, dock)
+            VrScreen.SETTINGS -> listOfNotNull(settings)
+            VrScreen.PLAYER -> if (state.hud.visible) listOfNotNull(hud) else emptyList()
         }
     }
 
