@@ -14,4 +14,15 @@ Core deliverables: PanelMetrics per-panel (kill Theme.panelWidthDegrees), pinned
 ListView rewrite w/ FontMetrics baselines, Theme/Surfaces/Icons glassmorphic restyle, GazeRay+PanelRaycast+
 GazeStabilizer+HitMap+Reticle, reduceGaze, comprehensive tests.
 
-Progress: starting Step 1.
+Progress (branch feat/ui-sheen-gaze):
+- Step 1 DONE (commit): PanelMetrics, modelYawRad/yaw fix, retexture, aspect/yaw tests.
+- Step 2 DONE: Theme §4.2 rewrite (old field names kept as aliases), Space/Radius/Type,
+  TextMeasure, Surfaces, Icons.
+- Steps 3-4 DONE (one commit): ListView rewrite (pure measureLayout + FontMetrics baselines +
+  HitRegion), HitMap, PanelGeometry, GazeTarget, screen redesigns (ServerList pinned footer,
+  Settings/Browse scroll), reduceGaze, AppState scroll fields, Event.GazeMoved/ListWindowMeasured.
+- Deviation: Settings section headers (VIEWER/OPTICS/...) NOT implemented (kept flat rows) —
+  ListView supports Entry.Header but interleaving breaks scrollTop=ROWS-index mapping. Backlog.
+- NEXT: Step 5 gaze math (GazeRay, PanelRaycast, GazeStabilizer + tests), then Step 6 Reticle +
+  Scene.update(pose) pipeline, Step 7 wiring reduceGaze into AppScene/VrActivity, Step 8 verify + docs.
+- Theme back-compat aliases + Theme.panelWidthDegrees deprecated field still present; remove in cleanup.
