@@ -73,3 +73,16 @@
 # ---------------------------------------------------------------------------
 -dontwarn kotlinx.coroutines.**
 -keepclassmembers class kotlin.Metadata { *; }
+
+# ---------------------------------------------------------------------------
+# UPnP / Networking / XML
+# ---------------------------------------------------------------------------
+-keep class com.daydreamvr.upnp.** { *; }
+-keep interface com.daydreamvr.upnp.** { *; }
+-keep class okhttp3.** { *; }
+-keep interface okhttp3.** { *; }
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-dontwarn javax.xml.**
+-dontwarn org.w3c.dom.**
+-dontwarn org.xml.sax.**

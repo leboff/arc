@@ -47,12 +47,12 @@ class SetupActivity : ComponentActivity() {
         }
 
         val manualInput = EditText(this).apply {
-            hint = "192.168.50.10:49152"
-            setText("192.168.50.10:49152")
-            textSize = 15f
+            hint = "http://192.168.50.10:49152/upnp/description.xml"
+            setText("http://192.168.50.10:49152/upnp/description.xml")
+            textSize = 14f
             setSingleLine()
             layoutParams = LinearLayout.LayoutParams(
-                (resources.displayMetrics.density * 260).toInt(),
+                (resources.displayMetrics.density * 300).toInt(),
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ).apply { gravity = Gravity.CENTER_HORIZONTAL }
         }

@@ -30,13 +30,13 @@ object SafeXml {
 
     private val factory: DocumentBuilderFactory =
         DocumentBuilderFactory.newInstance().apply {
-            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-            setFeature("http://xml.org/sax/features/external-general-entities", false)
-            setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-            setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
-            setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
-            isXIncludeAware = false
-            isExpandEntityReferences = false
+            runCatching { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
+            runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
+            runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
+            runCatching { setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false) }
+            runCatching { setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true) }
+            runCatching { isXIncludeAware = false }
+            runCatching { isExpandEntityReferences = false }
             isNamespaceAware = true
             isValidating = false
         }

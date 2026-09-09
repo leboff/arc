@@ -74,7 +74,8 @@ class MediaServerDirectoryImpl(
     override suspend fun addManual(hostPort: String): Result<MediaServer> {
         val trimmed = hostPort.trim()
         val direct = if (looksLikeDescriptionUrl(trimmed)) {
-            fetchDescription(URI(trimmed))
+            val url = if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) trimmed else "http://$trimmed"
+            fetchDescription(URI(url))
         } else {
             val base = baseUriOf(trimmed)
                 ?: return Result.failure(UpnpError.NotAMediaServer("cannot parse host:port '$hostPort'"))
@@ -106,14 +107,22 @@ class MediaServerDirectoryImpl(
             PROBE_PATHS.map { path ->
                 async {
                     withTimeoutOrNull(PROBE_BUDGET_MS) {
-                        fetchDescription(b.resolve(path)).getOrNull()
+                        fetchDescription(b.resolve(path))
                     }
                 }
             }
         }
-        val found = attempts.awaitAll().firstOrNull { it != null }
-        found?.let { Result.success(it) }
-            ?: Result.failure(UpnpError.NotAMediaServer("no MediaServer under $input"))
+        val results = attempts.awaitAll().filterNotNull()
+        val success = results.firstOrNull { it.isSuccess }?.getOrNull()
+        if (success != null) {
+            Result.success(success)
+        } else {
+            val failure = results.firstOrNull { it.isFailure }?.exceptionOrNull()
+            Result.failure(
+                failure?.let { UpnpError.NotAMediaServer(it.message ?: it.javaClass.simpleName) }
+                    ?: UpnpError.NotAMediaServer("no MediaServer under $input")
+            )
+        }
     }
 
     private suspend fun fetchDescription(location: URI): Result<MediaServer> = runCatching {
@@ -137,8 +146,10 @@ class MediaServerDirectoryImpl(
         _servers.update { current -> current.filterNot { it.udn == udn } }
     }
 
-    private fun looksLikeDescriptionUrl(value: String): Boolean =
-        value.startsWith("http://", ignoreCase = true) && value.endsWith(".xml", ignoreCase = true)
+    private fun looksLikeDescriptionUrl(value: String): Boolean {
+        val v = value.lowercase()
+        return v.endsWith(".xml") || v.contains(".xml?") || v.contains("/description") || v.contains("/desc")
+    }
 
     private fun baseUriOf(hostPort: String): URI? {
         val withScheme = if (hostPort.startsWith("http://", ignoreCase = true)) hostPort else "http://$hostPort"
