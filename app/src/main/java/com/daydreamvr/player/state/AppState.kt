@@ -116,7 +116,7 @@ data class HudState(
         const val AUTO_HIDE_MS = 4_000L
 
         /** The focusable HUD controls, left to right (ARCHITECTURE.md §11.4). */
-        val CONTROLS = listOf("Audio", "Subtitles", "Speed", "Projection", "Screen size")
+        val CONTROLS = listOf("Back", "Projection", "Speed", "Screen size")
     }
 }
 

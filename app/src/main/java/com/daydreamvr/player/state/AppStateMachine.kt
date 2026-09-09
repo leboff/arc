@@ -428,12 +428,13 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             if (!hud.visible) {
                 val shown = state.copy(hud = hud.copy(visible = true, lastInputAtMs = state.nowMs))
                 return when (action) {
-                    is InputAction.Confirm, is InputAction.Cancel -> shown to noFx()
+                    is InputAction.Confirm -> shown to noFx()
+                    is InputAction.Cancel -> shown to noFx()
                     else -> applyPlayerAction(shown, action)
                 }
             }
             return when (action) {
-                is InputAction.Cancel -> state.copy(hud = hud.copy(visible = false)) to noFx()
+                is InputAction.Cancel -> leavePlayer(state)
                 else -> applyPlayerAction(state.copy(hud = hud.copy(lastInputAtMs = state.nowMs)), action)
             }
         }
@@ -462,6 +463,7 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
 
         private fun activateHudControl(state: AppState): Pair<AppState, List<Effect>> =
             when (HudState.CONTROLS.getOrNull(state.hud.focusIndex)) {
+                "Back" -> leavePlayer(state)
                 "Speed" -> {
                     val next = nextSpeed(state.playback.speed)
                     state.copy(playback = state.playback.copy(speed = next)) to listOf(Effect.SetPlaybackSpeed(next))

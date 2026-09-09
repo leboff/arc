@@ -52,13 +52,23 @@ class HudReducerTest {
     }
 
     @Test
-    fun cancelDismissesAVisibleHudAndStaysInThePlayer() {
+    fun cancelOnAVisibleHudLeavesThePlayer() {
         val d = inPlayer()
         d.input(Fx.right)
         assertThat(d.state.hud.visible).isTrue()
 
+        // B with the HUD up is the escape hatch back to the list (no endless toggle).
         d.input(Fx.cancel)
+        assertThat(d.state.screen).isNotEqualTo(VrScreen.PLAYER)
         assertThat(d.state.hud.visible).isFalse()
+        assertThat(d.stepEffects).contains(Effect.StopPlayback)
+    }
+
+    @Test
+    fun cancelOnAHiddenHudJustShowsIt() {
+        val d = inPlayer()
+        d.input(Fx.cancel)
+        assertThat(d.state.hud.visible).isTrue()
         assertThat(d.state.screen).isEqualTo(VrScreen.PLAYER)
     }
 
