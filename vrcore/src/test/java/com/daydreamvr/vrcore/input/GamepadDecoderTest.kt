@@ -6,6 +6,7 @@ import org.junit.Test
 
 class GamepadDecoderTest {
 
+    private var player = false
     private var nowNanos = 0L
     private val emitted = mutableListOf<InputAction>()
     private lateinit var decoder: GamepadDecoder
@@ -18,6 +19,7 @@ class GamepadDecoderTest {
             bindings = InputBindings(),
             resolver = GamepadProfileResolver(),
             clock = { nowNanos },
+            playerInputEnabled = { player },
             emit = { emitted += it },
         )
     }
@@ -31,6 +33,53 @@ class GamepadDecoderTest {
 
     private fun key(code: Int, action: Int, repeatCount: Int = 0) =
         RawKey(keyCode = code, action = action, repeatCount = repeatCount)
+
+    @Test
+    fun yawUsesDeviceDeadzoneAndNormalizesRemainingTravel() {
+        decoder.registerDevice(GamepadCapabilities("custom", 7, "custom", 0,
+            listOf(MotionRangeInfo(RawMotion.AXIS_X, -1f, 1f, 0.4f))))
+        player = true
+        decoder.tick()
+        emitted.clear()
+        decoder.handleMotion(motion(RawMotion.AXIS_X to 0.3f))
+        assertThat(emitted).isEmpty()
+        decoder.handleMotion(motion(RawMotion.AXIS_X to 0.7f))
+        assertThat((emitted.single() as InputAction.YawAdjust).rate).isWithin(0.0001f).of(0.5f)
+    }
+
+    @Test
+    fun playerStickYawStopsOnReleaseExitAndDisconnect() {
+        player = true
+        decoder.tick()
+        emitted.clear()
+        decoder.handleMotion(motion(RawMotion.AXIS_X to 1f))
+        assertThat(emitted).containsExactly(InputAction.YawAdjust(1f))
+        emitted.clear()
+        advanceMs(500)
+        decoder.tick()
+        assertThat(emitted).isEmpty()
+        decoder.handleMotion(motion(RawMotion.AXIS_X to 0.1f))
+        assertThat(emitted).containsExactly(InputAction.YawAdjust(0f))
+        decoder.handleMotion(motion(RawMotion.AXIS_X to -1f))
+        decoder.onDeviceRemoved(7)
+        assertThat(emitted.last()).isEqualTo(InputAction.YawAdjust(0f))
+        decoder.handleMotion(motion(RawMotion.AXIS_X to 1f))
+        player = false
+        decoder.tick()
+        assertThat(emitted.last()).isEqualTo(InputAction.YawAdjust(0f))
+        emitted.clear()
+        decoder.handleMotion(motion(RawMotion.AXIS_X to 1f))
+        assertThat(emitted).containsExactly(InputAction.Nav(InputAction.Dir.RIGHT, false))
+    }
+
+    @Test
+    fun playerHatStillNavigates() {
+        player = true
+        decoder.tick()
+        emitted.clear()
+        decoder.handleMotion(motion(RawMotion.AXIS_HAT_X to -1f))
+        assertThat(emitted).containsExactly(InputAction.Nav(InputAction.Dir.LEFT, false))
+    }
 
     @Test
     fun stickCrossingDeadzone_emitsNavImmediately_thenRepeatsAfter400msAt120ms() {

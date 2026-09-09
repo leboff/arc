@@ -84,6 +84,12 @@ class AppScene(
 
     private var created = false
 
+    private val worldYaw = com.daydreamvr.vrcore.render.WorldYaw()
+    private var screenAnchorYaw = 0f
+    @Volatile private var yawRate = 0f
+
+    fun setYawRate(rate: Float) { yawRate = rate }
+
     @Volatile private var recenterRequested = false
 
     // Reticle placement, written in update, read in draw.
@@ -164,14 +170,18 @@ class AppScene(
             overlay?.anchor?.snapTo(headYaw)
             calibration?.anchor?.snapTo(headYaw)
             gamepadCal?.anchor?.snapTo(headYaw)
-            cylinder.yawRad = headYaw
-            sphere.yawRad = headYaw
+            screenAnchorYaw = headYaw
         } else {
             activePanelAnchor(state.screen)?.update(headYaw, dtSeconds)
             overlay?.anchor?.update(headYaw, dtSeconds)
             calibration?.anchor?.update(headYaw, dtSeconds)
             gamepadCal?.anchor?.update(headYaw, dtSeconds)
         }
+
+        if (state.screen != VrScreen.PLAYER) yawRate = 0f
+        worldYaw.update(yawRate, dtSeconds)
+        cylinder.yawRad = screenAnchorYaw + worldYaw.offsetRad
+        sphere.yawRad = cylinder.yawRad
 
         // Slave the dock to the browse panel AFTER the browse anchor has moved, so
         // the two never shear apart during a head turn (§3.1).
@@ -306,6 +316,7 @@ class AppScene(
             VrScreen.PLAYER -> {
                 val mode = state.playback.projection
                 if (mode.isSpherical) {
+                    sphere.domeFovDegrees = mode.domeFov?.degrees ?: com.daydreamvr.vrcore.render.DomeFov.DEG_180.degrees
                     sphere.draw(eye, viewM, projM, video, mode)
                 } else {
                     cylinder.draw(eye, viewM, projM, video, mode)

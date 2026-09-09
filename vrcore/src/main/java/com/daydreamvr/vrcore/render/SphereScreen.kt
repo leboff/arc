@@ -21,7 +21,16 @@ import kotlin.math.sin
  */
 class SphereScreen(
     var radiusM: Float = 50f,
+    domeFovDegrees: Int = DomeFov.DEG_180.degrees,
 ) {
+
+    var domeFovDegrees: Int = domeFovDegrees
+        set(value) {
+            require(DomeFov.entries.any { it.degrees == value })
+            field = value
+        }
+
+    init { require(DomeFov.entries.any { it.degrees == domeFovDegrees }) }
 
     /**
      * Interleaved `[x, y, z, u, v]` triangle soup covering the longitude span of
@@ -34,7 +43,8 @@ class SphereScreen(
         vSegments: Int = 32,
     ): FloatArray {
         require(hSegments >= 1 && vSegments >= 1)
-        val lonSpan = if (mode == ProjectionMode.EQUIRECT_180) PI.toFloat() else (2f * PI.toFloat())
+        val lonSpan = if (mode == ProjectionMode.EQUIRECT_360) (2f * PI.toFloat())
+            else domeFovDegrees * PI.toFloat() / 180f
 
         val out = FloatArray(hSegments * vSegments * 6 * FLOATS_PER_VERTEX)
         var w = 0
@@ -75,6 +85,7 @@ class SphereScreen(
 
     private var shader: Shader? = null
     private var mesh: Mesh? = null
+    private var meshFovDegrees: Int? = null
     private var meshMode: ProjectionMode? = null
     private val mvp = FloatArray(16)
     private val viewProj = FloatArray(16)
@@ -95,10 +106,11 @@ class SphereScreen(
         projection: ProjectionMode,
     ) {
         val program = shader ?: return
-        if (mesh == null || meshMode != projection) {
+        if (mesh == null || meshMode != projection || meshFovDegrees != domeFovDegrees) {
             mesh?.release()
             mesh = buildMesh(projection)
             meshMode = projection
+            meshFovDegrees = domeFovDegrees
         }
         val geo = mesh ?: return
 

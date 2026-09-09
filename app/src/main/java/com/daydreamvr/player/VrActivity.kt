@@ -36,6 +36,7 @@ import com.daydreamvr.player.state.Settings
 import com.daydreamvr.playback.ExoVideoPlayer
 import com.daydreamvr.playback.ScrubController
 import com.daydreamvr.playback.VideoPlayer
+import com.daydreamvr.player.state.VrScreen
 import com.daydreamvr.vrcore.input.GamepadDecoder
 import com.daydreamvr.vrcore.input.InputAction
 import com.daydreamvr.vrcore.profile.DeviceProfiles
@@ -121,6 +122,7 @@ class VrActivity : ComponentActivity() {
             bindings = container.inputBindings,
             resolver = container.gamepadProfileResolver,
             clock = System::nanoTime,
+            playerInputEnabled = { stateMachine.state.value.screen == VrScreen.PLAYER },
             emit = ::onInputAction,
         )
 
@@ -296,6 +298,10 @@ class VrActivity : ComponentActivity() {
 
     /** Sink for every decoded [InputAction]; routes to the state machine + player. */
     private fun onInputAction(action: InputAction) {
+        if (action is InputAction.YawAdjust) {
+            scene.setYawRate(action.rate)
+            return
+        }
         headTracker.onUserActivity()
         if (action is InputAction.Recenter) headTracker.recenter()
         if (action is InputAction.Scrub) {
@@ -364,6 +370,7 @@ class VrActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         Choreographer.getInstance().removeFrameCallback(frameCallback)
+        decoder.stopYaw()
         player.pause()
         glSurfaceView.onPause()
         thermalMonitor.stop()

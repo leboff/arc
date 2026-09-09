@@ -107,7 +107,7 @@ class PlayerHud(panel: PanelSurface, theme: Theme) :
 
     private fun valueFor(label: String, state: AppState): String? = when (label) {
         "Speed" -> String.format(Locale.US, "%.2f×", state.playback.speed)
-        "Projection" -> state.playback.projection.name.lowercase().replace('_', ' ')
+        "Projection" -> state.playback.projection.label
         "Screen size" -> "${state.settings.screenWidthDegrees.toInt()}°"
         else -> null
     }

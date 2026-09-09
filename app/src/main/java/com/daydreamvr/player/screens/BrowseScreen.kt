@@ -169,11 +169,5 @@ class BrowseScreen(panel: PanelSurface, theme: Theme) : ScreenPanel(
         else -> null
     }
 
-    private fun projectionLabel(mode: ProjectionMode): String = when (mode) {
-        ProjectionMode.FLAT -> "Flat"
-        ProjectionMode.EQUIRECT_180 -> "VR180"
-        ProjectionMode.EQUIRECT_360 -> "VR360"
-        ProjectionMode.SBS_HALF, ProjectionMode.SBS_FULL -> "3D SBS"
-        ProjectionMode.TOPBOTTOM_HALF, ProjectionMode.TOPBOTTOM_FULL -> "3D TB"
-    }
+    private fun projectionLabel(mode: ProjectionMode): String = mode.label
 }

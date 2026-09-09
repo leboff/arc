@@ -704,14 +704,7 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                 listOf(Effect.PersistProjectionOverride(key, nextMode))
         }
 
-        private val PROJECTION_CYCLE = listOf(
-            ProjectionMode.FLAT,
-            ProjectionMode.SBS_HALF,
-            ProjectionMode.TOPBOTTOM_HALF,
-            ProjectionMode.EQUIRECT_180,
-            ProjectionMode.EQUIRECT_360,
-            null,
-        )
+        private val PROJECTION_CYCLE = ProjectionMode.entries.toList() + null
 
         private fun cycleProjectionOverride(current: ProjectionMode?): ProjectionMode? {
             val i = PROJECTION_CYCLE.indexOf(current).let { if (it < 0) 0 else it }

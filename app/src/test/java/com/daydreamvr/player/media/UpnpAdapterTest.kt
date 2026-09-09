@@ -50,7 +50,7 @@ class UpnpAdapterTest {
     @Test
     fun projectionIsDetectedFromTheTitle() {
         assertThat(UpnpAdapter.video(item(title = "Beach 180 sbs")).detectedProjection)
-            .isEqualTo(ProjectionMode.SBS_HALF)
+            .isEqualTo(ProjectionMode.EQUIRECT_180_SBS)
     }
 
     @Test

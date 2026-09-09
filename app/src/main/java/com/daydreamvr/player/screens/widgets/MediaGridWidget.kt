@@ -211,13 +211,7 @@ class MediaGridWidget(
         canvas.drawText(text, if (alignRight) x - metrics.px(Space.S) else x + metrics.px(Space.S), y + h - metrics.px(Space.XS) * 2, paint)
     }
 
-    private fun projectionBadge(mode: ProjectionMode): String? = when (mode) {
-        ProjectionMode.FLAT -> null
-        ProjectionMode.EQUIRECT_180 -> "VR180"
-        ProjectionMode.EQUIRECT_360 -> "VR360"
-        ProjectionMode.SBS_HALF, ProjectionMode.SBS_FULL -> "3D SBS"
-        ProjectionMode.TOPBOTTOM_HALF, ProjectionMode.TOPBOTTOM_FULL -> "3D TB"
-    }
+    private fun projectionBadge(mode: ProjectionMode): String? = if (mode == ProjectionMode.FLAT) null else mode.label
 
     private fun centreCrop(bw: Int, bh: Int, tw: Float, th: Float): Rect {
         if (bw <= 0 || bh <= 0 || tw <= 0f || th <= 0f) return Rect(0, 0, bw, bh)

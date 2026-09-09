@@ -37,6 +37,7 @@ class DebugOverlay(private val maxLines: Int = 14) {
         InputAction.Recenter -> "RECENTER"
         is InputAction.Seek -> "SEEK ${action.deltaSeconds}s"
         is InputAction.Scrub -> String.format(Locale.US, "SCRUB %.2f", action.rate)
+        is InputAction.YawAdjust -> "YAW ${action.rate}"
         is InputAction.Zoom -> String.format(Locale.US, "ZOOM %.2f", action.delta)
         is InputAction.ScreenDistance -> String.format(Locale.US, "SCREEN DIST %.2f", action.delta)
         InputAction.Menu -> "MENU"

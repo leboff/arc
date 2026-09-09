@@ -91,6 +91,7 @@ class GamepadDecoder(
     var bindings: InputBindings,
     private val resolver: GamepadProfileResolver,
     private val clock: () -> Long,
+    private val playerInputEnabled: () -> Boolean = { false },
     private val emit: (InputAction) -> Unit,
 ) {
     private val capsByDeviceId = HashMap<Int, GamepadCapabilities>()
@@ -114,6 +115,24 @@ class GamepadDecoder(
     private var navStartNanos = 0L
     private var nextRepeatNanos = 0L
 
+    private var lastYawRate = 0f
+    private var wasPlayer = false
+
+    fun stopYaw() {
+        lastYawRate = 0f
+        emit(InputAction.YawAdjust(0f))
+    }
+
+    private fun syncContext() {
+        val player = playerInputEnabled()
+        if (player != wasPlayer) {
+            wasPlayer = player
+            motionNavDir = null
+            updateNav(clock())
+            stopYaw()
+        }
+    }
+
     private var lastScrubRate = 0f
 
     // region device lifecycle
@@ -132,6 +151,7 @@ class GamepadDecoder(
         capsByDeviceId.remove(deviceId)
         axisMapByDeviceId.remove(deviceId)
         if (deviceId == activeMotionDeviceId) {
+            stopYaw()
             motionNavDir = null
             updateNav(clock())
         }
@@ -218,9 +238,20 @@ class GamepadDecoder(
 
     fun handleMotion(event: RawMotion): Boolean {
         val now = clock()
+        syncContext()
         activeMotionDeviceId = event.deviceId
         val map = axisMapFor(event.deviceId)
 
+        if (playerInputEnabled()) {
+            val x = event.axis(map.leftStickX)
+            val dead = map.deadzone(map.leftStickX, bindings.deadzoneFallback).coerceIn(0f, 0.99f)
+            val rate = if (!x.isFinite() || abs(x) <= dead) 0f else
+                kotlin.math.sign(x) * ((abs(x) - dead) / (1f - dead)).coerceIn(0f, 1f)
+            if (rate != lastYawRate) {
+                lastYawRate = rate
+                emit(InputAction.YawAdjust(rate))
+            }
+        }
         updateMotionNav(event, map, now)
         updateScrub(event, map)
         emitStickAdjustments(event, map)
@@ -230,7 +261,7 @@ class GamepadDecoder(
     private fun updateMotionNav(event: RawMotion, map: AxisMap, now: Long) {
         val hatX = event.axis(map.hatX)
         val hatY = event.axis(map.hatY)
-        val stickX = event.axis(map.leftStickX)
+        val stickX = if (playerInputEnabled()) 0f else event.axis(map.leftStickX)
         val stickY = event.axis(map.leftStickY)
         val deadX = map.deadzone(map.leftStickX, bindings.deadzoneFallback)
         val deadY = map.deadzone(map.leftStickY, bindings.deadzoneFallback)
@@ -305,6 +336,7 @@ class GamepadDecoder(
     }
 
     fun tick() {
+        syncContext()
         val now = clock()
 
         val longThresholdNanos = bindings.longPressMs * NANOS_PER_MS

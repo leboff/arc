@@ -85,7 +85,7 @@ class MediaCursorMapperTest {
     @Test
     fun projectionDetectionUsesNameThenPathThenAspect() {
         val sbs = MediaCursorMapper.map(listOf(row(1, displayName = "clip_180_sbs.mp4"))).values.first().first()
-        assertThat(sbs.detectedProjection).isEqualTo(ProjectionMode.SBS_HALF)
+        assertThat(sbs.detectedProjection).isEqualTo(ProjectionMode.EQUIRECT_180_SBS)
 
         val byPath = MediaCursorMapper.map(
             listOf(row(2, displayName = "clip.mp4", relativePath = "DCIM/VR180/")),

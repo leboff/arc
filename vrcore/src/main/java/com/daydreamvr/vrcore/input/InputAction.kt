@@ -26,6 +26,9 @@ sealed interface InputAction {
     /** Analog trigger scrub, normalised to `[-1, 1]`; `0` means released. */
     data class Scrub(val rate: Float) : InputAction
 
+    /** Left-stick horizontal rate in [-1, 1]; zero stops world rotation. */
+    data class YawAdjust(val rate: Float) : InputAction
+
     data class Zoom(val delta: Float) : InputAction
 
     data class ScreenDistance(val delta: Float) : InputAction

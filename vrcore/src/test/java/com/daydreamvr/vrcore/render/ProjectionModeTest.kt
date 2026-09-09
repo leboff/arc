@@ -6,6 +6,29 @@ import org.junit.Test
 class ProjectionModeTest {
 
     @Test
+    fun domePackingAndDetection() {
+        for (token in listOf("SBS", "H-SBS", "HSBS")) {
+            assertThat(ProjectionMode.detect("Beach_VR180_$token.mp4", 3840, 1920))
+                .isEqualTo(ProjectionMode.EQUIRECT_180_SBS)
+        }
+        for (token in listOf("OU", "TB", "Half-OU")) {
+            assertThat(ProjectionMode.detect("Beach 180 $token.mp4", 3840, 1920))
+                .isEqualTo(ProjectionMode.EQUIRECT_180_TOPBOTTOM)
+        }
+        for (mode in ProjectionMode.entries.filter { it.domeFov != null }) {
+            for (eye in Eye.entries) {
+                val expected = when (mode.packing) {
+                    StereoPacking.MONO -> ProjectionMode.FLAT
+                    StereoPacking.SBS -> ProjectionMode.SBS_HALF
+                    StereoPacking.TOPBOTTOM -> ProjectionMode.TOPBOTTOM_HALF
+                }
+                assertThat(ProjectionMode.uvRectFor(mode, eye).toList())
+                    .containsExactlyElementsIn(ProjectionMode.uvRectFor(expected, eye).toList()).inOrder()
+            }
+        }
+    }
+
+    @Test
     fun detect_readsHalfSbsFromTitle() {
         assertThat(ProjectionMode.detect("Movie.2016.1080p.HSBS.mkv", 1920, 1080))
             .isEqualTo(ProjectionMode.SBS_HALF)

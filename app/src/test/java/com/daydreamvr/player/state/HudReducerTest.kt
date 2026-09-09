@@ -20,6 +20,17 @@ class HudReducerTest {
     )
 
     @Test
+    fun projectionControlVisitsEveryDomePackingAndFov() {
+        val d = inPlayer()
+        val modes = com.daydreamvr.vrcore.render.ProjectionMode.entries
+        for (expected in modes.drop(1) + modes.first()) {
+            d.input(InputAction.CycleProjection)
+            assertThat(d.state.playback.projection).isEqualTo(expected)
+            assertThat(d.stepEffects).contains(Effect.SetProjection(expected))
+        }
+    }
+
+    @Test
     fun firstInputShowsTheHudWithoutActingOnIt() {
         val d = inPlayer()
         d.input(InputAction.Confirm(long = false))
