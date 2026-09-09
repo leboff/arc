@@ -9,22 +9,18 @@
 # ---------------------------------------------------------------------------
 # AndroidX Media3 / ExoPlayer
 # ---------------------------------------------------------------------------
-# DefaultRenderersFactory instantiates extension renderers via
-# Class.forName(...).getConstructor(...) — keep their constructors and names.
-# (Media3 also ships consumer rules; these cover the ffmpeg audio extension
-# named explicitly in ExoVideoPlayer's EXTENSION_RENDERER_MODE_PREFER path.)
--keepnames class androidx.media3.** { *; }
--keep class androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer {
-    <init>(android.os.Handler, androidx.media3.exoplayer.audio.AudioRendererEventListener, androidx.media3.exoplayer.audio.AudioSink);
-}
--keep class androidx.media3.decoder.ffmpeg.FfmpegLibrary { *; }
--keepclassmembers class * extends androidx.media3.exoplayer.Renderer {
-    <init>(...);
-}
-# Media3 parcelables / flag enums touched reflectively by the session code.
--keep class androidx.media3.common.** { *; }
+-keep class androidx.media3.** { *; }
+-keep interface androidx.media3.** { *; }
+-keepclassmembers class androidx.media3.** { *; }
 -dontwarn androidx.media3.**
 -dontwarn com.google.android.exoplayer2.**
+
+# ---------------------------------------------------------------------------
+# Playback module
+# ---------------------------------------------------------------------------
+-keep class com.daydreamvr.playback.** { *; }
+-keep interface com.daydreamvr.playback.** { *; }
+-keepclassmembers class com.daydreamvr.playback.** { *; }
 
 # ---------------------------------------------------------------------------
 # kotlinx.serialization
