@@ -85,7 +85,14 @@ class ExoVideoPlayer(
         resourceIndex = 0
         retryAttempt = 0
         refreshedOnce = false
-        forcedSoftwareAudio = false
+        if (forcedSoftwareAudio) {
+            val surface = pendingSurface
+            player?.removeListener(listener)
+            player?.release()
+            player = null
+            forcedSoftwareAudio = false
+            pendingSurface = surface
+        }
         ensurePlayer()
         loadCurrentResource(request.startAtMs.coerceAtLeast(resumeStartFor(request)))
     }
@@ -144,9 +151,9 @@ class ExoVideoPlayer(
         val renderers = DefaultRenderersFactory(context)
             .setExtensionRendererMode(
                 if (forcedSoftwareAudio) {
-                    DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
-                } else {
                     DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+                } else {
+                    DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
                 },
             )
             .setEnableDecoderFallback(true)

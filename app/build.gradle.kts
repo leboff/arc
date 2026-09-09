@@ -15,6 +15,9 @@ android {
         versionCode = 1
         versionName = "0.1.0-phase1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     buildTypes {
@@ -50,12 +53,19 @@ android {
         abortOnError = false
         checkReleaseBuilds = false
     }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
 }
 
 dependencies {
     implementation(project(":vrcore"))
     implementation(project(":upnp"))
     implementation(project(":playback"))
+    implementation(files(rootProject.file("playback/libs/media3-decoder-ffmpeg-1.4.1.aar")))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.ktx)

@@ -16,6 +16,19 @@
 -dontwarn com.google.android.exoplayer2.**
 
 # ---------------------------------------------------------------------------
+# Media3 FFmpeg decoder extension (docs/FORMAT_SUPPORT_PLAN.md §4.5, §8.5)
+# ---------------------------------------------------------------------------
+-keep class androidx.media3.decoder.ffmpeg.FfmpegLibrary { *; }
+-keep class androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer {
+    public <init>(android.os.Handler,
+                  androidx.media3.exoplayer.audio.AudioRendererEventListener,
+                  androidx.media3.exoplayer.audio.AudioSink);
+}
+-keepclasseswithmembernames class androidx.media3.decoder.ffmpeg.** {
+    native <methods>;
+}
+
+# ---------------------------------------------------------------------------
 # Playback module
 # ---------------------------------------------------------------------------
 -keep class com.daydreamvr.playback.** { *; }
