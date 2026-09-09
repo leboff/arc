@@ -18,15 +18,18 @@ import com.daydreamvr.vrcore.ui.Space
 import com.daydreamvr.vrcore.ui.Surfaces
 import com.daydreamvr.vrcore.ui.Theme
 import com.daydreamvr.vrcore.ui.Type
+import com.daydreamvr.vrcore.ui.widgets.ListView
 
 /**
  * The top-most panel: transient toasts, blocking error / confirm dialogs, the
- * VR keyboard, and an ambient "working…" line (ARCHITECTURE.md §11.4, §11.5).
+ * projection chooser, the VR keyboard, and an ambient "working…" line
+ * (ARCHITECTURE.md §11.4, §11.5).
  */
 class OverlayRenderer(panel: PanelSurface, theme: Theme) :
     ScreenPanel(panel, theme, panelWidthM = 2.00f, panelHeightM = 1.30f) {
 
     private val keyboard = VrKeyboard(theme = theme)
+    private val list = ListView(theme, metrics)
 
     var visible: Boolean = false
         private set
@@ -52,6 +55,7 @@ class OverlayRenderer(panel: PanelSurface, theme: Theme) :
                     drawDialog(canvas, overlay.title, overlay.message, if (overlay.canRetry) listOf("Retry", "Dismiss") else listOf("OK"), 0, state.gaze, regions, error = true)
                 is Overlay.Confirm ->
                     drawDialog(canvas, overlay.title, null, overlay.options, overlay.focusIndex, state.gaze, regions, error = false)
+                is Overlay.ProjectionChooser -> drawProjectionChooser(canvas, overlay, state.gaze, regions)
                 is Overlay.Toast -> drawToast(canvas, overlay.message)
                 null -> ambient?.let { drawToast(canvas, it) }
             }
@@ -120,11 +124,62 @@ class OverlayRenderer(panel: PanelSurface, theme: Theme) :
         }
     }
 
+    /**
+     * A scrollable, selectable list of every [com.daydreamvr.vrcore.render.ProjectionMode]
+     * plus a leading "Auto" entry (kanban t_af6bc99f). Replaces the old
+     * click-to-cycle HUD/inspector control — confirming a row applies it directly.
+     */
+    private fun drawProjectionChooser(
+        canvas: Canvas,
+        overlay: Overlay.ProjectionChooser,
+        gaze: GazeTarget?,
+        regions: MutableList<HitRegion<GazeTarget>>,
+    ) {
+        canvas.drawColor(theme.scrim)
+        val pad = metrics.px(Space.XL)
+        val rect = RectF(pad, pad, metrics.widthPx - pad, metrics.heightPx - pad)
+        Surfaces.card(canvas, rect, metrics, theme, Radius.CARD)
+
+        val titlePaint = theme.text(Type.screenTitle, metrics)
+        val titleY = pad * 2 + metrics.px(Type.screenTitle.degrees)
+        canvas.drawText("Choose Projection", rect.left + pad, titleY, titlePaint)
+
+        val contentTop = titleY + metrics.px(Space.M)
+        val bodyLeft = rect.left + pad
+        val bodyWidth = rect.width() - pad * 2
+        val bodyHeight = rect.bottom - pad - contentTop
+
+        val options = Overlay.ProjectionChooser.OPTIONS
+        val entries = options.map { mode ->
+            ListView.Entry.Item(
+                title = Overlay.ProjectionChooser.labelFor(mode),
+                trailing = if (mode == overlay.current) "Current" else null,
+            )
+        }
+        val visibleRows = list.visibleRowCount(bodyHeight, twoLine = false)
+        val scrollTop = scrollWindowFor(overlay.focusIndex, options.size, visibleRows)
+        val layout = list.measureLayout(entries, contentTop, bodyHeight, bodyLeft, bodyWidth, scrollTop)
+        val hover = (gaze as? GazeTarget.ProjectionOption)?.index
+        list.draw(canvas, entries, layout, overlay.focusIndex, hover, scrollTop)
+
+        regions += layout.boxes.map { box ->
+            HitRegion(box.left, box.top, box.right, box.bottom, GazeTarget.ProjectionOption(box.index))
+        }
+    }
+
+    /** Keeps [focus] inside a [window]-row scroll, mirroring [com.daydreamvr.player.state.AppStateMachine.clampScroll]. */
+    private fun scrollWindowFor(focus: Int, total: Int, window: Int): Int {
+        if (total <= window) return 0
+        val st = focus.coerceIn(0, maxOf(0, total - window))
+        return if (focus >= st + window) focus - window + 1 else st
+    }
+
     private fun overlayKey(overlay: Overlay?): Any? = when (overlay) {
         null -> "none"
         is Overlay.Keyboard -> listOf("kb", overlay.purpose, overlay.kb)
         is Overlay.Error -> listOf("err", overlay.title, overlay.message, overlay.canRetry)
         is Overlay.Confirm -> listOf("confirm", overlay.title, overlay.options, overlay.focusIndex, overlay.tag)
+        is Overlay.ProjectionChooser -> listOf("projection", overlay.current, overlay.returnTo, overlay.targetKey, overlay.focusIndex)
         is Overlay.Toast -> listOf("toast", overlay.message)
     }
 }

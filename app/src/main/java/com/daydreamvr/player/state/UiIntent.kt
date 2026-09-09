@@ -19,8 +19,8 @@ sealed interface UiIntent {
 
     data class NavigateBreadcrumb(val depth: Int) : UiIntent
 
-    /** Cycle the focused video's projection override. */
-    data object OverrideProjection : UiIntent
+    /** Opens the selectable [Overlay.ProjectionChooser] for the focused video (kanban t_af6bc99f). */
+    data object OpenProjectionChooser : UiIntent
 
     data class PlayVideo(val fromStart: Boolean) : UiIntent
 

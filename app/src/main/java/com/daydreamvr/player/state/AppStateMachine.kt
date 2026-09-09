@@ -107,6 +107,8 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                 return when {
                     target is GazeTarget.DialogButton && overlay is Overlay.Confirm ->
                         s.copy(overlay = overlay.copy(focusIndex = target.index.coerceIn(0, overlay.options.size - 1)))
+                    target is GazeTarget.ProjectionOption && overlay is Overlay.ProjectionChooser ->
+                        s.copy(overlay = overlay.copy(focusIndex = target.index.coerceIn(0, Overlay.ProjectionChooser.OPTIONS.size - 1)))
                     target is GazeTarget.KeyboardKey && overlay is Overlay.Keyboard ->
                         s.copy(overlay = overlay.copy(kb = overlay.kb.copy(cursorRow = target.row, cursorCol = target.col)))
                     else -> s // targets for the screen behind the overlay are ignored
@@ -156,7 +158,7 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                 is GazeTarget.DockButton -> browseGazeFocus(state, s, BrowseFocus.Dock(target.button))
                 is GazeTarget.ToolbarChip -> browseGazeFocus(state, s, BrowseFocus.Toolbar(target.chip))
                 is GazeTarget.BreadcrumbSegment, is GazeTarget.PageButton -> s
-                is GazeTarget.DialogButton, is GazeTarget.KeyboardKey -> s
+                is GazeTarget.DialogButton, is GazeTarget.KeyboardKey, is GazeTarget.ProjectionOption -> s
             } to noFx()
         }
 
@@ -576,7 +578,7 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             is BrowseFocus.Inspector -> when (f.action) {
                 GazeTarget.Action.PLAY -> UiIntent.PlayVideo(fromStart = true)
                 GazeTarget.Action.RESUME -> UiIntent.PlayVideo(fromStart = false)
-                GazeTarget.Action.PROJECTION -> UiIntent.OverrideProjection
+                GazeTarget.Action.PROJECTION -> UiIntent.OpenProjectionChooser
             }
             is BrowseFocus.Dock -> UiIntent.DockAction(f.button)
             is BrowseFocus.Toolbar -> when (f.chip) {
@@ -606,7 +608,7 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                 if (intent.depth < 0 || intent.depth >= stack.size) state to noFx()
                 else state.copy(browse = state.browse.copy(stack = stack.take(intent.depth + 1))) to noFx()
             }
-            UiIntent.OverrideProjection -> overrideProjection(state)
+            UiIntent.OpenProjectionChooser -> openProjectionChooserFromBrowse(state)
             is UiIntent.PlayVideo -> playVideo(state, intent.fromStart)
             is UiIntent.DockAction -> dockAction(state, intent.button)
         }
@@ -717,27 +719,31 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             return state.copy(browse = state.browse.replaceTop(moved)) to fx
         }
 
-        private fun overrideProjection(state: AppState): Pair<AppState, List<Effect>> {
+        private fun openProjectionChooserFromBrowse(state: AppState): Pair<AppState, List<Effect>> {
             val frame = state.browse.top ?: return state to noFx()
             val video = frame.focusedVideo ?: return state to noFx()
             val key = MediaKey(frame.mediaSource.id, video.id)
             val storageKey = key.storageKey()
             val current = state.projectionOverrides[storageKey] ?: video.detectedProjection
-            val nextMode = cycleProjectionOverride(current)
-            val overrides = if (nextMode == null) {
-                state.projectionOverrides - storageKey
-            } else {
-                state.projectionOverrides + (storageKey to nextMode)
-            }
-            return state.copy(projectionOverrides = overrides) to
-                listOf(Effect.PersistProjectionOverride(key, nextMode))
+            return state.copy(
+                overlay = Overlay.ProjectionChooser(
+                    current = current,
+                    returnTo = ProjectionChooserOrigin.BROWSE_OVERRIDE,
+                    targetKey = storageKey,
+                    focusIndex = Overlay.ProjectionChooser.initialFocusIndex(current),
+                ),
+            ) to noFx()
         }
 
-        private val PROJECTION_CYCLE = ProjectionMode.entries.toList() + null
-
-        private fun cycleProjectionOverride(current: ProjectionMode?): ProjectionMode? {
-            val i = PROJECTION_CYCLE.indexOf(current).let { if (it < 0) 0 else it }
-            return PROJECTION_CYCLE[(i + 1) % PROJECTION_CYCLE.size]
+        private fun openProjectionChooserFromPlayer(state: AppState): Pair<AppState, List<Effect>> {
+            val current = state.playback.projection
+            return state.copy(
+                overlay = Overlay.ProjectionChooser(
+                    current = current,
+                    returnTo = ProjectionChooserOrigin.PLAYER,
+                    focusIndex = Overlay.ProjectionChooser.initialFocusIndex(current),
+                ),
+            ) to noFx()
         }
 
         private fun playVideo(state: AppState, fromStart: Boolean): Pair<AppState, List<Effect>> {
@@ -844,10 +850,7 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                     val next = nextSpeed(state.playback.speed)
                     state.copy(playback = state.playback.copy(speed = next)) to listOf(Effect.SetPlaybackSpeed(next))
                 }
-                "Projection" -> {
-                    val next = nextProjection(state.playback.projection)
-                    state.copy(playback = state.playback.copy(projection = next)) to listOf(Effect.SetProjection(next))
-                }
+                "Projection" -> openProjectionChooserFromPlayer(state)
                 else -> state to noFx()
             }
 
@@ -900,6 +903,7 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             when (overlay) {
                 is Overlay.Keyboard -> reduceKeyboard(state, overlay, action)
                 is Overlay.Confirm -> reduceConfirm(state, overlay, action)
+                is Overlay.ProjectionChooser -> reduceProjectionChooser(state, overlay, action)
                 is Overlay.Error -> when (action) {
                     is InputAction.Confirm ->
                         if (overlay.canRetry) state.copy(overlay = null) to retryEffects(state)
@@ -945,6 +949,57 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                         listOf(Effect.Play(pending.item, pending.serverUdn, start, null, skipResumeCheck = true))
                 }
                 else -> cleared to noFx()
+            }
+        }
+
+        /**
+         * Up/Down moves the list focus one row (a flat list, unlike the two-axis
+         * dialog button row); Confirm applies the highlighted [ProjectionMode] (or
+         * clears back to Auto) and writes it back to whichever surface opened the
+         * chooser. Cancel is handled by [softEscape] falling through when this
+         * returns the state unchanged.
+         */
+        private fun reduceProjectionChooser(
+            state: AppState,
+            overlay: Overlay.ProjectionChooser,
+            action: InputAction,
+        ): Pair<AppState, List<Effect>> = when (action) {
+            is InputAction.Nav -> when (action.dir) {
+                InputAction.Dir.UP, InputAction.Dir.DOWN -> {
+                    val count = Overlay.ProjectionChooser.OPTIONS.size
+                    val next = moveFocus(overlay.focusIndex, action.dir, count)
+                    state.copy(overlay = overlay.copy(focusIndex = next)) to noFx()
+                }
+                else -> state to noFx()
+            }
+            is InputAction.Confirm -> applyProjectionChoice(state, overlay)
+            else -> state to noFx()
+        }
+
+        private fun applyProjectionChoice(
+            state: AppState,
+            overlay: Overlay.ProjectionChooser,
+        ): Pair<AppState, List<Effect>> {
+            val mode = Overlay.ProjectionChooser.OPTIONS.getOrNull(overlay.focusIndex)
+            val cleared = state.copy(overlay = null)
+            return when (overlay.returnTo) {
+                ProjectionChooserOrigin.PLAYER -> {
+                    val applied = mode ?: cleared.playback.projection
+                    cleared.copy(playback = cleared.playback.copy(projection = applied)) to
+                        listOf(Effect.SetProjection(applied))
+                }
+                ProjectionChooserOrigin.BROWSE_OVERRIDE -> {
+                    val storageKey = overlay.targetKey ?: return cleared to noFx()
+                    val overrides = if (mode == null) {
+                        cleared.projectionOverrides - storageKey
+                    } else {
+                        cleared.projectionOverrides + (storageKey to mode)
+                    }
+                    val (sourceId, nodeId) = storageKey.split("|", limit = 2)
+                        .let { it.getOrElse(0) { "" } to it.getOrElse(1) { "" } }
+                    cleared.copy(projectionOverrides = overrides) to
+                        listOf(Effect.PersistProjectionOverride(MediaKey(sourceId, nodeId), mode))
+                }
             }
         }
 

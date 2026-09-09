@@ -19,6 +19,9 @@ sealed interface GazeTarget {
 
     data class DialogButton(val index: Int) : GazeTarget
 
+    /** Absolute row index in [Overlay.ProjectionChooser.OPTIONS]. */
+    data class ProjectionOption(val index: Int) : GazeTarget
+
     data class KeyboardKey(val row: Int, val col: Int) : GazeTarget
 
     // ---- 3-column PLAY'A browse layout (UI_REDESIGN_REVIEWED_PLAN.md §6) ----

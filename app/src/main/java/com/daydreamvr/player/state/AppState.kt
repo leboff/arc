@@ -190,7 +190,37 @@ sealed interface Overlay {
         val focusIndex: Int,
         val tag: String,
     ) : Overlay
+
+    /**
+     * A selectable list of every [ProjectionMode] plus a leading "Auto" entry
+     * (kanban t_af6bc99f). Replaces the old click-to-cycle HUD/inspector control:
+     * confirming an entry applies it directly instead of stepping through every
+     * mode one at a time. [returnTo] tells the reducer whether the selection came
+     * from the player HUD ([ProjectionChooserOrigin.PLAYER] → [Effect.SetProjection])
+     * or the browse inspector ([ProjectionChooserOrigin.BROWSE_OVERRIDE] →
+     * [Effect.PersistProjectionOverride]).
+     */
+    data class ProjectionChooser(
+        val current: ProjectionMode?,
+        val returnTo: ProjectionChooserOrigin,
+        /** Set only for [ProjectionChooserOrigin.BROWSE_OVERRIDE]; the video the choice applies to. */
+        val targetKey: String? = null,
+        val focusIndex: Int = 0,
+    ) : Overlay {
+        companion object {
+            /** Auto (null) first, then every mode in declaration order. */
+            val OPTIONS: List<ProjectionMode?> = listOf(null) + ProjectionMode.entries
+
+            fun labelFor(mode: ProjectionMode?): String = mode?.label ?: "Auto (Default)"
+
+            fun initialFocusIndex(current: ProjectionMode?): Int =
+                OPTIONS.indexOf(current).coerceAtLeast(0)
+        }
+    }
 }
+
+/** Where a [Overlay.ProjectionChooser] selection should be written back to. */
+enum class ProjectionChooserOrigin { PLAYER, BROWSE_OVERRIDE }
 
 enum class KeyboardPurpose { MANUAL_SERVER, SEARCH }
 
