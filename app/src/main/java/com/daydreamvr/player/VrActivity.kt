@@ -136,6 +136,11 @@ class VrActivity : ComponentActivity() {
             },
             trackerCalibratedProvider = { headTracker.isCalibrated.value },
             onGazeTarget = { t -> runOnUiThread { stateMachine.dispatch(Event.GazeMoved(t)) } },
+            thermalStatusProvider = {
+                runCatching {
+                    (getSystemService(POWER_SERVICE) as android.os.PowerManager).currentThermalStatus
+                }.getOrDefault(0)
+            },
             onVideoSurfaceReady = { surface -> player.attach(surface) },
         ).also { s ->
             s.onListWindowMeasured = { w -> runOnUiThread { stateMachine.dispatch(Event.ListWindowMeasured(w)) } }

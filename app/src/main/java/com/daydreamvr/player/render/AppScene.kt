@@ -16,6 +16,7 @@ import com.daydreamvr.playback.PlaybackSnapshot
 import com.daydreamvr.vrcore.gl.VideoTexture
 import com.daydreamvr.vrcore.render.CylinderScreen
 import com.daydreamvr.vrcore.render.EyeParams
+import com.daydreamvr.vrcore.render.GroundGrid
 import com.daydreamvr.vrcore.render.Scene
 import com.daydreamvr.vrcore.render.SphereScreen
 import com.daydreamvr.vrcore.ui.GazeRay
@@ -42,6 +43,8 @@ class AppScene(
     private val neckOffsetProvider: () -> FloatArray? = { null },
     private val trackerCalibratedProvider: () -> Boolean = { true },
     private val onGazeTarget: (GazeTarget?) -> Unit = {},
+    /** `PowerManager.THERMAL_STATUS_*`; drives the ground-grid intensity (§12.4). */
+    private val thermalStatusProvider: () -> Int = { 0 },
     private val onVideoSurfaceReady: (Surface) -> Unit,
 ) : Scene {
 
@@ -64,6 +67,10 @@ class AppScene(
     private val sphere = SphereScreen()
     private val video = VideoTexture()
     private val reticle = Reticle()
+    private val groundGrid = GroundGrid()
+
+    private val groundLine = rgb(theme.accent)
+    private val groundGlow = rgb(theme.accent)
 
     private val stabilizer = GazeStabilizer<GazeTarget>()
     private var lastDispatched: GazeTarget? = null
@@ -112,6 +119,7 @@ class AppScene(
         sphere.onGlCreate()
         video.createOnGlThread()
         reticle.onGlCreate()
+        groundGrid.onGlCreate()
         onVideoSurfaceReady(video.surface)
 
         stabilizer.reset()
@@ -159,6 +167,7 @@ class AppScene(
         // Slave the dock to the browse panel AFTER the browse anchor has moved, so
         // the two never shear apart during a head turn (§3.1).
         browse?.let { dock?.anchor?.snapTo(it.anchor.yawRad) }
+        groundGrid.yawRad = activePanelAnchor(state.screen)?.yawRad ?: cylinder.yawRad
 
         runGazePipeline(state, pose, dtSeconds)
 
@@ -255,6 +264,17 @@ class AppScene(
 
     override fun draw(eye: EyeParams, viewM: FloatArray, projM: FloatArray) {
         val state = stateProvider()
+
+        // OLED void → ground grid → panels → overlay → reticle (§3.4).
+        if (GroundGridPolicy.visibleOn(state.screen)) {
+            val thermal = thermalStatusProvider()
+            groundGrid.draw(
+                viewM, projM, groundLine, groundGlow,
+                GroundGridPolicy.intensityFor(thermal),
+                glow = GroundGridPolicy.glowFor(thermal),
+            )
+        }
+
         when (state.screen) {
             VrScreen.SERVER_LIST -> serverList?.drawGl(eye, viewM, projM)
             VrScreen.BROWSE -> browse?.drawGl(eye, viewM, projM)
@@ -296,6 +316,7 @@ class AppScene(
         sphere.onGlDestroy()
         video.release()
         reticle.onGlDestroy()
+        groundGrid.onGlDestroy()
         created = false
     }
 
@@ -304,5 +325,23 @@ class AppScene(
         VrScreen.BROWSE -> browse?.anchor
         VrScreen.SETTINGS -> settings?.anchor
         VrScreen.PLAYER -> hud?.anchor
+    }
+
+    /**
+     * The ground grid is a browsing-comfort cue, not scenery. It is suppressed in
+     * [VrScreen.PLAYER] unconditionally — inside a `SphereScreen` the plane would
+     * paint a glowing grid across the lower third of a 360 video (§12.4, R17).
+     */
+    private fun groundVisible(screen: VrScreen): Boolean = when (screen) {
+        VrScreen.SERVER_LIST, VrScreen.BROWSE, VrScreen.SETTINGS -> true
+        VrScreen.PLAYER -> false
+    }
+
+    private companion object {
+        fun rgb(argb: Int): FloatArray = floatArrayOf(
+            ((argb shr 16) and 0xFF) / 255f,
+            ((argb shr 8) and 0xFF) / 255f,
+            (argb and 0xFF) / 255f,
+        )
     }
 }
