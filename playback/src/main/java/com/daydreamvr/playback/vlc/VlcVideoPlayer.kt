@@ -217,22 +217,10 @@ class VlcVideoPlayer(
         // MANDATORY. Without it: audio plays, screen stays black, no error (§5.3).
         vout.setWindowSize(surfaceWidth, surfaceHeight)
         vout.attachViews(
-            object : IVLCVout.OnNewVideoLayoutListener {
-                override fun onNewVideoLayout(
-                    vlcVout: IVLCVout,
-                    width: Int,
-                    height: Int,
-                    visibleWidth: Int,
-                    visibleHeight: Int,
-                    sarNum: Int,
-                    sarDen: Int,
-                ) {
-                    if (width > 0 && height > 0) {
-                        surfaceWidth = width
-                        surfaceHeight = height
-                        _snapshot.value = _snapshot.value.copy(videoWidth = width, videoHeight = height)
-                    }
-                }
+            newVideoLayoutListener { width, height ->
+                surfaceWidth = width
+                surfaceHeight = height
+                _snapshot.value = _snapshot.value.copy(videoWidth = width, videoHeight = height)
             },
         )
         viewsAttached = true
@@ -338,5 +326,36 @@ class VlcVideoPlayer(
             // Subtitles are not supported on this engine (§5.5).
             "--no-sub-autodetect-file",
         )
+    }
+}
+
+/**
+ * Builds the [IVLCVout.OnNewVideoLayoutListener] that re-applies the *real*
+ * decoded video dimensions to LibVLC's output window.
+ *
+ * VLC parses the stream only after [IVLCVout.attachViews], so the
+ * [IVLCVout.setWindowSize] call in [VlcVideoPlayer.attachSurface] necessarily
+ * runs against the placeholder guess (`DEFAULT_SURFACE_*`). Without a second
+ * `setWindowSize` here VLC keeps scaling every frame into that stale window for
+ * the rest of playback, and the shared GL projection mesh — which assumes the
+ * Surface is filled edge-to-edge at the true frame aspect — renders warped or
+ * seamed output. Media3-native playback is unaffected; this is only reached on
+ * the compatibility-engine fallback path.
+ */
+internal fun newVideoLayoutListener(
+    onLayout: (width: Int, height: Int) -> Unit,
+): IVLCVout.OnNewVideoLayoutListener = object : IVLCVout.OnNewVideoLayoutListener {
+    override fun onNewVideoLayout(
+        vlcVout: IVLCVout,
+        width: Int,
+        height: Int,
+        visibleWidth: Int,
+        visibleHeight: Int,
+        sarNum: Int,
+        sarDen: Int,
+    ) {
+        if (width <= 0 || height <= 0) return
+        vlcVout.setWindowSize(width, height)
+        onLayout(width, height)
     }
 }
