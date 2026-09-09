@@ -5,6 +5,7 @@ import android.opengl.GLSurfaceView
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Choreographer
 import android.view.Gravity
 import android.view.InputDevice
@@ -23,17 +24,29 @@ import com.daydreamvr.player.input.isGamepad
 import com.daydreamvr.player.input.toGamepadCapabilities
 import com.daydreamvr.player.input.toRawKey
 import com.daydreamvr.player.input.toRawMotion
-import com.daydreamvr.player.render.DebugCubeScene
+import com.daydreamvr.player.render.AppScene
+import com.daydreamvr.player.state.AppStateMachine
+import com.daydreamvr.player.state.Effect
+import com.daydreamvr.player.state.Event
+import com.daydreamvr.player.state.Settings
+import com.daydreamvr.playback.ExoVideoPlayer
+import com.daydreamvr.playback.ScrubController
+import com.daydreamvr.playback.VideoPlayer
 import com.daydreamvr.vrcore.input.GamepadDecoder
 import com.daydreamvr.vrcore.input.InputAction
+import com.daydreamvr.vrcore.profile.DeviceProfiles
 import com.daydreamvr.vrcore.render.VrRenderer
 import com.daydreamvr.vrcore.tracking.SensorHeadTracker
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
+import kotlin.math.atan2
 
 /**
- * Fullscreen immersive landscape GL surface (ARCHITECTURE.md §18). Intercepts
- * key / motion events at the Activity level — there are no focusable Views — and
- * feeds them to [GamepadDecoder]. Phase 1: no sensors, no network, no video.
+ * Fullscreen immersive landscape GL surface (ARCHITECTURE.md §18). Phase 5 wires
+ * the pieces together: decoded gamepad actions and the frame clock feed
+ * [AppStateMachine]; [com.daydreamvr.player.state.EffectRunner] runs the effects;
+ * [AppScene] renders whatever screen the state selects, plus the video screen and
+ * HUD during playback.
  */
 class VrActivity : ComponentActivity() {
 
@@ -41,10 +54,19 @@ class VrActivity : ComponentActivity() {
     private lateinit var renderer: VrRenderer
     private lateinit var decoder: GamepadDecoder
     private lateinit var headTracker: SensorHeadTracker
+    private lateinit var player: VideoPlayer
+    private lateinit var stateMachine: AppStateMachine
+    private lateinit var effectRunner: com.daydreamvr.player.state.EffectRunner
+    private lateinit var scene: AppScene
     private val overlay = DebugOverlay()
+    private val scrub = ScrubController()
 
     /** Reused every frame by the pose provider — read only on the GL thread. */
     private val poseBuffer = FloatArray(16)
+
+    /** Head yaw (radians) latched by the GL-thread pose provider for panel follow. */
+    @Volatile
+    private var headYawRad: Float = 0f
 
     private lateinit var leftEyeText: TextView
     private lateinit var rightEyeText: TextView
@@ -54,6 +76,7 @@ class VrActivity : ComponentActivity() {
     private val frameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
             decoder.tick()
+            stateMachine.dispatch(Event.Tick(SystemClock.uptimeMillis()))
             Choreographer.getInstance().postFrameCallback(this)
         }
     }
@@ -91,11 +114,46 @@ class VrActivity : ComponentActivity() {
             emit = ::onInputAction,
         )
 
+        player = ExoVideoPlayer(
+            context = this,
+            resumeStore = container.resumeStore,
+            onFatalError = { message ->
+                runOnUiThread { stateMachine.dispatch(Event.Failure("Playback problem", message, canRetry = true)) }
+            },
+        )
+
+        stateMachine = AppStateMachine()
+        scene = AppScene(
+            stateProvider = { stateMachine.state.value },
+            snapshotProvider = { player.snapshot.value },
+            headYawProvider = { headYawRad },
+            onVideoSurfaceReady = { surface -> player.attach(surface) },
+        )
+
+        effectRunner = com.daydreamvr.player.state.EffectRunner(
+            directory = container.mediaServerDirectory,
+            contentDirectory = container.contentDirectoryClient,
+            player = player,
+            decoderCaps = { container.decoderCapsProvider.caps() },
+            resumeStore = container.resumeStore,
+            serverStore = container.serverStore,
+            settingsStore = container.settingsStore,
+            scope = lifecycleScope,
+            dispatch = stateMachine::dispatch,
+            onRecenter = {
+                headTracker.recenter()
+                scene.recenter()
+            },
+            onApplySettings = ::applySettings,
+            onQuit = { finish() },
+        )
+
         renderer = VrRenderer(
-            scene = DebugCubeScene(),
+            scene = scene,
             profileProvider = { container.deviceProfile },
             poseProvider = {
                 headTracker.poseFor(System.nanoTime() + PREDICT_AHEAD_NS, poseBuffer)
+                headYawRad = atan2(-poseBuffer[8], poseBuffer[10])
                 poseBuffer
             },
         ).apply {
@@ -129,12 +187,42 @@ class VrActivity : ComponentActivity() {
         getSystemService(InputManager::class.java)
             .registerInputDeviceListener(inputDeviceListener, mainHandler)
 
+        effectRunner.start()
+        wireFlows()
+        loadPersistedState(container)
+        effectRunner.run(Effect.StartDiscovery(force = false))
+    }
+
+    private fun wireFlows() {
         lifecycleScope.launch {
             overlay.text.collect { text ->
                 leftEyeText.text = text
                 rightEyeText.text = text
             }
         }
+        lifecycleScope.launch {
+            // Drop the initial empty emission; report real connect/disconnect edges.
+            decoder.connectedGamepads.drop(1).collect { pads ->
+                stateMachine.dispatch(Event.ControllerConnected(pads.isNotEmpty()))
+            }
+        }
+    }
+
+    private fun loadPersistedState(container: com.daydreamvr.player.di.AppContainer) {
+        lifecycleScope.launch {
+            val settings = runCatching { container.settingsStore.current() }.getOrDefault(Settings())
+            container.resumeStore.restore(runCatching { container.settingsStore.loadResume() }.getOrDefault(emptyList()))
+            stateMachine.dispatch(Event.SettingsLoaded(settings))
+            applySettings(settings)
+        }
+    }
+
+    private fun applySettings(settings: Settings) {
+        headTracker.predictionEnabled = settings.predictionEnabled
+        headTracker.autoRecenterIdleSeconds = settings.autoRecenterIdleSeconds
+        (application as PlayerApp).container.deviceProfile =
+            DeviceProfiles.byId(settings.deviceProfileId) ?: DeviceProfiles.DEFAULT
+        renderer.ipdM = settings.ipdMm / 1000f
     }
 
     private fun configureImmersive() {
@@ -164,11 +252,34 @@ class VrActivity : ComponentActivity() {
         }
     }
 
-    /** Sink for every decoded [InputAction]; also drives head-tracker side effects. */
+    /** Sink for every decoded [InputAction]; routes to the state machine + player. */
     private fun onInputAction(action: InputAction) {
         headTracker.onUserActivity()
         if (action is InputAction.Recenter) headTracker.recenter()
-        runOnUiThread { overlay.onAction(action) }
+        if (action is InputAction.Scrub) {
+            handleScrub(action.rate)
+            return
+        }
+        runOnUiThread {
+            overlay.onAction(action)
+            stateMachine.dispatch(Event.Input(action))
+        }
+    }
+
+    private fun handleScrub(rate: Float) {
+        runOnUiThread {
+            val snap = player.snapshot.value
+            if (rate == 0f) {
+                scrub.onRelease()?.let { target ->
+                    player.seekTo(target, exact = true)
+                    stateMachine.dispatch(Event.ScrubPreview(null))
+                }
+                return@runOnUiThread
+            }
+            val out = scrub.onScrub(rate, SystemClock.uptimeMillis(), snap.positionMs, snap.durationMs)
+            stateMachine.dispatch(Event.ScrubPreview(out.previewPositionMs))
+            if (out.commitSeek) player.seekTo(out.previewPositionMs, exact = false)
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -202,6 +313,7 @@ class VrActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         Choreographer.getInstance().removeFrameCallback(frameCallback)
+        player.pause()
         glSurfaceView.onPause()
         headTracker.stop()
     }
@@ -209,6 +321,7 @@ class VrActivity : ComponentActivity() {
     override fun onDestroy() {
         getSystemService(InputManager::class.java)
             .unregisterInputDeviceListener(inputDeviceListener)
+        player.release()
         renderer.onGlDestroy()
         super.onDestroy()
     }

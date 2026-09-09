@@ -1,8 +1,12 @@
 package com.daydreamvr.player.di
 
 import android.content.Context
+import com.daydreamvr.player.data.ServerStore
+import com.daydreamvr.player.data.SettingsStore
 import com.daydreamvr.player.net.AndroidNetworkBinder
 import com.daydreamvr.player.net.LogcatUpnpLog
+import com.daydreamvr.playback.DecoderCapsProvider
+import com.daydreamvr.playback.InMemoryResumeStore
 import com.daydreamvr.upnp.MediaServerDirectory
 import com.daydreamvr.upnp.MediaServerDirectoryImpl
 import com.daydreamvr.upnp.cds.ContentDirectoryClient
@@ -52,4 +56,15 @@ class AppContainer(context: Context) {
 
     val contentDirectoryClient: ContentDirectoryClient =
         ContentDirectoryClientImpl(httpTransport, LogcatUpnpLog)
+
+    // ---- Phase 5: end-to-end player loop -----------------------------------
+
+    val settingsStore: SettingsStore = SettingsStore(appContext)
+
+    val serverStore: ServerStore = ServerStore(appContext)
+
+    /** Shared between [com.daydreamvr.playback.ExoVideoPlayer] and the [EffectRunner]. */
+    val resumeStore: InMemoryResumeStore = InMemoryResumeStore()
+
+    val decoderCapsProvider: DecoderCapsProvider = DecoderCapsProvider()
 }
