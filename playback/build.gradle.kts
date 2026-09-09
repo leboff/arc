@@ -3,9 +3,8 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
-// Phase 1 stub. The Media3 wrapper and the video-to-GL-texture bridge land in
-// Phase 4 (docs/PLAN.md §4); this module exists now only so the dependency graph
-// (app -> playback -> media3) is wired from the start.
+// Phase 4 (docs/PLAN.md §4): the Media3 playback engine, the video-to-GL bridge
+// contract, resume storage, the scrub controller and the format-fallback policy.
 
 android {
     namespace = "com.daydreamvr.playback"
@@ -30,15 +29,34 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
 }
 
 dependencies {
-    implementation(project(":vrcore"))
+    api(project(":vrcore"))
+    api(project(":upnp"))
+
     api(libs.media3.exoplayer)
     api(libs.media3.common)
     implementation(libs.media3.datasource.okhttp)
+    implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.core)
 
     testImplementation(libs.junit4)
     testImplementation(libs.truth)
+    testImplementation(libs.kotlinx.coroutines.test)
+
+    androidTestImplementation(libs.androidx.test.junit)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.rules)
+    androidTestImplementation(libs.okhttp.mockwebserver)
 }

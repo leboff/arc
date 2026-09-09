@@ -550,6 +550,33 @@ enum class ProjectionMode { FLAT, SBS_HALF, SBS_FULL, TOPBOTTOM_HALF, TOPBOTTOM_
 - [ ] 1080p H.264 and 1080p H.265+AC3 both play with audio; playback holds 90 Hz render with no dropped-frame accumulation over 10 minutes.
 - [ ] Pulling the Wi-Fi mid-playback produces a retry sequence and then a legible in-headset error, not a black screen.
 
+### 4.5 Phase 4 backlog / deviations
+
+- **`ProjectionMode` naming.** Implemented as the ARCHITECTURE.md §10.3 / PLAN
+  §4.2 contract (`FLAT, SBS_HALF, SBS_FULL, TOPBOTTOM_HALF, TOPBOTTOM_FULL,
+  EQUIRECT_180, EQUIRECT_360`), not the `PLANE/CYLINDER/SPHERE_*` sketch in the
+  Phase 4 task brief. The geometry choice (cylinder vs sphere) is derived:
+  `ProjectionMode.isSpherical`.
+- **`media3-decoder-ffmpeg` not bundled.** The extension is not published to
+  Maven Central for 1.4.x (it must be built from source / NDK), so it is not a
+  dependency yet. `ExoVideoPlayer` already sets
+  `EXTENSION_RENDERER_MODE_PREFER` and the `FallbackPolicy.ForceSoftwareAudio`
+  path flips it to `_ON`; wiring the actual `.aar` (or a prebuilt) is deferred.
+  Until then the "H.265 + AC3 audio" acceptance criterion is
+  `UNVERIFIED-ON-DEVICE`.
+- **`PlaybackSmokeTest` + test asset files** (`test_5s_h264.mp4`,
+  `test_5s_h265_ac3.mkv`) not added — needs a device/emulator and binary
+  fixtures. The pure logic it would cover (fallback on 404, resume round-trip,
+  scrub throttling) is under `FallbackPolicyTest` / `ResumeStoreTest` /
+  `ScrubControllerTest`.
+- **`FallbackAction.RefreshUrlFromServer`** currently retries the same URL after
+  a short delay; the real parent-container re-`Browse` lands with the browser UI
+  in Phase 5 (it needs the `MediaServerDirectory` handle the player does not yet
+  hold).
+- **`ExoVideoPlayer` resume persistence** writes on pause/stop/ended and via the
+  0.5 s poll only indirectly; the "every 10 s" timer from ARCHITECTURE.md §10.4
+  is trivial to add but belongs with the HUD tick loop in Phase 5.
+
 ---
 
 ## Phase 5 — In-Headset UI, State Machine, End-to-End
