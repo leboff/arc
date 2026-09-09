@@ -682,10 +682,10 @@ Panels are 1024×1024 or 1024×512, mip-mapped (text at 3 m through Cardboard le
 These are constraints, not suggestions — the effective resolution per eye through the lenses is far lower than the panel's pixel count.
 
 - **Text height ≥ 1.5° of visual angle.** At the default 2.5 m panel distance that is ≥ 65 mm of virtual height; the toolkit computes `Paint.textSize` from a requested angular size, never from pixels.
-- **Content inside ±25° horizontal, ±20° vertical** of the recentre direction. The periphery of a Cardboard viewer is blurred and heavily distorted; anything important out there is unreadable.
+- **Comfort zones (two-tier horizontal, asymmetric vertical):** Primary targets inside ±25° horizontal (eyes-only comfortable); secondary targets and panel edges inside ±35° horizontal (head-turn comfortable). Asymmetric vertical limit: +20° upward, −30° downward (looking down is far more natural than straining upward).
 - **Contrast:** light text (#E8E8EA) on a dark translucent panel (#0A0A0Cdd). Avoid saturated blue for text (chromatic aberration is worst at the blue end) and avoid pure white on black (bloom through cheap lenses).
 - **Never draw across the centre divider**, and keep panels within the stereo-overlap region so both eyes see all of every panel.
-- **Panels are world-locked** at the recentre yaw with **lazy-follow**: if the head yaw exceeds 35° from the panel's anchor, the panel eases toward the new yaw with a 0.5 s time constant. Fully head-locked UI is uncomfortable; fully world-locked UI gets lost when the user shifts in their seat. Lazy-follow is the standard compromise.
+- **Panels are world-locked** at the recentre yaw with **lazy-follow**: lazy-follow threshold is 45° for wide curved panels (R12, ensuring ±32.086° panel edges never trip follow while reading) and 35° for standard panels, easing toward the new yaw with a 0.5 s time constant. Fully head-locked UI is uncomfortable; fully world-locked UI gets lost when the user shifts in their seat. Lazy-follow is the standard compromise.
 - **No fades between screens** longer than 150 ms, no motion of the whole world other than the slewed recentre.
 
 ### 11.4 Screens
@@ -693,7 +693,7 @@ These are constraints, not suggestions — the effective resolution per eye thro
 | Screen | Contents |
 |---|---|
 | `ServerList` | Discovered servers (name, manufacturer, IP), spinner while SSDP runs, "Add server manually" row, "Retry discovery" row. |
-| `Browse` | Breadcrumb strip at top (`Gerbera › Video › Films`), 8-row scrolling list with type icons, thumbnail, title, duration, watched-progress bar, and a right-hand detail card for the focused item (resolution, size, codec, resume position). Page indicator; L2/R2 alpha-jump. |
+| `Browse` | Curved three-column layout on single cylindrical PanelSurface (1536×800, R=2.50 m, 64.2° arc): SourceSidebarWidget (Device/Network/Favourites sources and scrollable folder tree), MediaGridWidget (2×3 widescreen 16:9 card grid, async thumbnails, format badges, duration pills, pagination dots), and MediaInspectorWidget (high-res poster preview, metadata table, projection toggle, Play/Resume CTA). Accompanied by detached floating SystemDock (672×176, R=2.05 m, 24° pitch down: Recenter, Settings, Exit). |
 | `Player` | The cinema screen; HUD hidden by default. HUD = a bottom panel with timeline, elapsed/remaining, play state, volume, and a row of focusable controls (audio track, subtitle track, speed, projection mode, screen size). Auto-hides after 4 s of no input. A small always-visible corner glyph shows buffering state. |
 | `Settings` | Device profile picker, live calibration grid (IPD, screen-to-lens, k1/k2, divider width), prediction toggle, neck model toggle, auto-recentre, gamepad remap/calibration, "forget servers". |
 | `Keyboard` | §11.5. |
