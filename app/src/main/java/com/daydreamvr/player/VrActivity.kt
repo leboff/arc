@@ -171,10 +171,15 @@ class VrActivity : ComponentActivity() {
         runOnUiThread { overlay.onAction(action) }
     }
 
-    @Suppress("DEPRECATION") // display?.rotation is API 30+; minSdk is 29.
+    @Suppress("DEPRECATION")
     private fun currentDisplayRotation(): Int =
-        (display ?: windowManager.defaultDisplay).rotation
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            display?.rotation ?: android.view.Surface.ROTATION_0
+        } else {
+            windowManager.defaultDisplay.rotation
+        }
 
+    @android.annotation.SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (decoder.handleKey(event.toRawKey())) return true
         return super.dispatchKeyEvent(event)

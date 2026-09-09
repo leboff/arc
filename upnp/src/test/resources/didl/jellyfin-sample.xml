@@ -1,0 +1,18 @@
+<didl:DIDL-Lite xmlns:didl="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"
+                xmlns:dc="http://purl.org/dc/elements/1.1/"
+                xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">
+  <didl:container id="f-tv" parentID="0" childCount="1" restricted="1">
+    <dc:title>TV &amp; Documentaries</dc:title>
+    <upnp:class>object.container.storageFolder</upnp:class>
+  </didl:container>
+  <didl:item id="i-nature" parentID="f-tv" restricted="1">
+    <dc:title>Nature &amp; Science &#39;24</dc:title>
+    <upnp:class>object.item.videoItem.videoBroadcast</upnp:class>
+    <didl:res protocolInfo="http-get:*:video/mp4:*"
+              size="2200000000" duration="0:52:19.000" resolution="1920x1080" bitrate="5600000"
+    >http://10.0.0.4:8096/Videos/abc/stream.mp4?static=true</didl:res>
+    <didl:res protocolInfo="http-get:*:video/mp4:*"
+              size="640000000" duration="0:52:19.000" resolution="854x480" bitrate="1400000"
+    >http://10.0.0.4:8096/Videos/abc/stream.mp4?static=true&amp;quality=low</didl:res>
+  </didl:item>
+</didl:DIDL-Lite>

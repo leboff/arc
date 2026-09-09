@@ -50,6 +50,7 @@ class SetupActivity : ComponentActivity() {
         enterVr.requestFocus()
     }
 
+    @android.annotation.SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_UP && event.keyCode in CONFIRM_KEYS) {
             enterVr()

@@ -1,0 +1,21 @@
+<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"
+           xmlns:dc="http://purl.org/dc/elements/1.1/"
+           xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">
+  <container id="1$4" parentID="1" childCount="8" restricted="1">
+    <dc:title>All Video</dc:title>
+    <upnp:class>object.container.storageFolder</upnp:class>
+  </container>
+  <item id="1$4$0" parentID="1$4" restricted="1">
+    <dc:title>Beach 360 VR</dc:title>
+    <upnp:class>object.item.videoItem</upnp:class>
+    <res protocolInfo="http-get:*:video/mp4:DLNA.ORG_PN=AVC_MP4_MP_HD_1080i_AAC"
+         size="21474836480" duration="01:02:03" resolution="3840x2160" bitrate="24000000"
+    >http://192.168.50.20:8200/MediaItems/512.mp4</res>
+  </item>
+  <item id="1$4$1" parentID="1$4" restricted="1">
+    <dc:title>Rooftop Song</dc:title>
+    <upnp:class>object.item.audioItem.musicTrack</upnp:class>
+    <res protocolInfo="http-get:*:audio/mpeg:*" size="7340032" duration="0:03:41"
+    >http://192.168.50.20:8200/MediaItems/77.mp3</res>
+  </item>
+</DIDL-Lite>
