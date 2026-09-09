@@ -219,6 +219,11 @@ class VrActivity : ComponentActivity() {
                 stateMachine.dispatch(Event.ControllerConnected(pads.isNotEmpty()))
             }
         }
+        lifecycleScope.launch {
+            stateMachine.effects.collect { effect ->
+                effectRunner.run(effect)
+            }
+        }
     }
 
     private fun loadPersistedState(container: com.daydreamvr.player.di.AppContainer) {
