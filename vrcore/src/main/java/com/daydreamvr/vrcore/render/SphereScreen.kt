@@ -50,7 +50,7 @@ class SphereScreen(
             out[w++] = radiusM * sin(lat)
             out[w++] = -radiusM * cosLat * cos(lon)
             out[w++] = fu
-            out[w++] = 1f - fv
+            out[w++] = fv
         }
 
         for (i in 0 until hSegments) {

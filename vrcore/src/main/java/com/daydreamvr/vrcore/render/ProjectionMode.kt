@@ -77,7 +77,7 @@ enum class ProjectionMode {
             SBS_HALF, SBS_FULL ->
                 if (eye == Eye.LEFT) floatArrayOf(0f, 0f, 0.5f, 1f) else floatArrayOf(0.5f, 0f, 0.5f, 1f)
             TOPBOTTOM_HALF, TOPBOTTOM_FULL ->
-                if (eye == Eye.LEFT) floatArrayOf(0f, 0f, 1f, 0.5f) else floatArrayOf(0f, 0.5f, 1f, 0.5f)
+                if (eye == Eye.LEFT) floatArrayOf(0f, 0.5f, 1f, 0.5f) else floatArrayOf(0f, 0f, 1f, 0.5f)
             FLAT, EQUIRECT_180, EQUIRECT_360 -> floatArrayOf(0f, 0f, 1f, 1f)
         }
     }

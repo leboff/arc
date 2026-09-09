@@ -61,7 +61,7 @@ class CylinderScreen(
             out[w++] = (fv - 0.5f) * 2f * halfHeight
             out[w++] = -radiusM * cos(theta)
             out[w++] = fu
-            out[w++] = 1f - fv
+            out[w++] = fv
         }
 
         for (i in 0 until hSegments) {

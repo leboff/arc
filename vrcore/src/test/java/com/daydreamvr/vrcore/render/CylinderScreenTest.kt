@@ -79,4 +79,21 @@ class CylinderScreenTest {
         assertThat(narrowX).isWithin(1e-3f).of(wideX) // horizontal extent unchanged
         assertThat(wideY / narrowY).isWithin(1e-2f).of(2.35f) // vertical shrinks proportionally
     }
+
+    @Test
+    fun verticesHaveCorrectTextureCoordinateOrientation() {
+        val s = CylinderScreen(radiusM = 4f, widthDegrees = 60f)
+        val verts = s.buildVertices(4, 4)
+        var i = 0
+        while (i < verts.size) {
+            val y = verts[i + 1]
+            val v = verts[i + 4]
+            if (y < -s.heightM * 0.4f) {
+                assertThat(v).isWithin(1e-3f).of(0f)
+            } else if (y > s.heightM * 0.4f) {
+                assertThat(v).isWithin(1e-3f).of(1f)
+            }
+            i += stride
+        }
+    }
 }

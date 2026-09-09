@@ -48,10 +48,10 @@ class ProjectionModeTest {
         val left = ProjectionMode.uvRectFor(ProjectionMode.TOPBOTTOM_HALF, Eye.LEFT)
         val right = ProjectionMode.uvRectFor(ProjectionMode.TOPBOTTOM_FULL, Eye.RIGHT)
 
-        // v offset 0 is the top of the image.
-        assertThat(left[1]).isEqualTo(0f)
+        // In standard texture coordinates, v offset 0.5 is the top half of the frame.
+        assertThat(left[1]).isEqualTo(0.5f)
         assertThat(left[3]).isEqualTo(0.5f)
-        assertThat(right[1]).isEqualTo(0.5f)
+        assertThat(right[1]).isEqualTo(0f)
     }
 
     @Test

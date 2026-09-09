@@ -50,7 +50,7 @@ class PanelQuad(
             out[w++] = (fv - 0.5f) * 2f * halfH
             out[w++] = z
             out[w++] = fu
-            out[w++] = 1f - fv
+            out[w++] = fv
         }
 
         for (i in 0 until hSegments) {
