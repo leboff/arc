@@ -62,6 +62,7 @@ class VrActivity : ComponentActivity() {
     private lateinit var stateMachine: AppStateMachine
     private lateinit var effectRunner: com.daydreamvr.player.state.EffectRunner
     private lateinit var scene: AppScene
+    private lateinit var thumbnailCache: com.daydreamvr.player.media.thumb.ThumbnailCache
     private val overlay = DebugOverlay()
     private val scrub = ScrubController()
     private lateinit var thermalMonitor: ThermalMonitor
@@ -81,7 +82,10 @@ class VrActivity : ComponentActivity() {
     private val frameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
             decoder.tick()
-            stateMachine.dispatch(Event.Tick(SystemClock.uptimeMillis()))
+            val now = SystemClock.uptimeMillis()
+            stateMachine.dispatch(Event.Tick(now))
+            // Coalesced thumbnail arrivals bump thumbGeneration → browse-panel repaint (§9.6).
+            if (thumbnailCache.pollRepaint(now)) stateMachine.dispatch(Event.ThumbnailsArrived)
             Choreographer.getInstance().postFrameCallback(this)
         }
     }
@@ -141,6 +145,7 @@ class VrActivity : ComponentActivity() {
                     (getSystemService(POWER_SERVICE) as android.os.PowerManager).currentThermalStatus
                 }.getOrDefault(0)
             },
+            thumbnailCacheProvider = { container.thumbnailCache },
             onVideoSurfaceReady = { surface -> player.attach(surface) },
         ).also { s ->
             s.onListWindowMeasured = { w -> runOnUiThread { stateMachine.dispatch(Event.ListWindowMeasured(w)) } }

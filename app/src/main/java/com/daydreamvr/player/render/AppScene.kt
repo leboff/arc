@@ -9,6 +9,10 @@ import com.daydreamvr.player.screens.PlayerHud
 import com.daydreamvr.player.screens.ScreenPanel
 import com.daydreamvr.player.screens.ServerListScreen
 import com.daydreamvr.player.screens.SettingsScreen
+import com.daydreamvr.player.screens.SystemDockScreen
+import com.daydreamvr.player.screens.BrowseLayout
+import com.daydreamvr.player.screens.DockLayout
+import com.daydreamvr.player.media.thumb.ThumbnailCache
 import com.daydreamvr.player.state.AppState
 import com.daydreamvr.player.state.GazeTarget
 import com.daydreamvr.player.state.VrScreen
@@ -45,6 +49,8 @@ class AppScene(
     private val onGazeTarget: (GazeTarget?) -> Unit = {},
     /** `PowerManager.THERMAL_STATUS_*`; drives the ground-grid intensity (§12.4). */
     private val thermalStatusProvider: () -> Int = { 0 },
+    /** The shared thumbnail cache the browse grid peeks each repaint (§9). */
+    private val thumbnailCacheProvider: () -> ThumbnailCache,
     private val onVideoSurfaceReady: (Surface) -> Unit,
 ) : Scene {
 
@@ -54,9 +60,9 @@ class AppScene(
     /**
      * The detached system dock — a second interactive surface on `BROWSE` at a
      * smaller radius than [browse]. Its anchor is *slaved* to the browse anchor
-     * each frame so the two move as one rigid assembly (§3.1). Wired in M8.
+     * each frame so the two move as one rigid assembly (§3.1).
      */
-    private var dock: ScreenPanel? = null
+    private var dock: SystemDockScreen? = null
     private var settings: SettingsScreen? = null
     private var calibration: CalibrationScreen? = null
     private var gamepadCal: GamepadCalibrationScreen? = null
@@ -97,6 +103,7 @@ class AppScene(
         get() = buildMap {
             serverList?.let { put("servers", it.redrawCount) }
             browse?.let { put("browse", it.redrawCount) }
+            dock?.let { put("dock", it.redrawCount) }
             settings?.let { put("settings", it.redrawCount) }
             calibration?.let { put("calibration", it.redrawCount) }
             gamepadCal?.let { put("gamepadCal", it.redrawCount) }
@@ -108,7 +115,8 @@ class AppScene(
         if (created) onGlDestroy()
 
         serverList = ServerListScreen(PanelSurface(1024, 676), theme).also { it.onGlCreate() }
-        browse = BrowseScreen(PanelSurface(1280, 800), theme).also { it.onGlCreate() }
+        browse = BrowseScreen(PanelSurface(BrowseLayout.WIDTH_PX, BrowseLayout.HEIGHT_PX), theme).also { it.onGlCreate() }
+        dock = SystemDockScreen(PanelSurface(DockLayout.WIDTH_PX, DockLayout.HEIGHT_PX), theme).also { it.onGlCreate() }
         settings = SettingsScreen(PanelSurface(1024, 700), theme).also { it.onGlCreate() }
         calibration = CalibrationScreen(PanelSurface(1536, 1024), theme).also { it.onGlCreate() }
         gamepadCal = GamepadCalibrationScreen(PanelSurface(1024, 512), theme).also { it.onGlCreate() }
@@ -140,7 +148,8 @@ class AppScene(
         val headYaw = atan2(-pose[8], pose[10])
 
         serverList?.render(state)
-        browse?.render(state)
+        browse?.render(state, thumbnailCacheProvider())
+        dock?.render(state)
         settings?.render(state)
         calibration?.render(state)
         gamepadCal?.render(state)
@@ -186,6 +195,7 @@ class AppScene(
 
         serverList?.updateTexture()
         browse?.updateTexture()
+        dock?.updateTexture()
         settings?.updateTexture()
         calibration?.updateTexture()
         gamepadCal?.updateTexture()
@@ -200,7 +210,7 @@ class AppScene(
         listWindowReported = true
         onListWindowMeasured(
             com.daydreamvr.player.state.ListWindow(
-                browse = b.visibleRows(),
+                browse = b.visibleSidebarRows(),
                 settings = s.visibleRows(),
                 servers = com.daydreamvr.player.state.ListWindow().servers,
             ),
@@ -281,7 +291,10 @@ class AppScene(
 
         when (state.screen) {
             VrScreen.SERVER_LIST -> serverList?.drawGl(eye, viewM, projM)
-            VrScreen.BROWSE -> browse?.drawGl(eye, viewM, projM)
+            VrScreen.BROWSE -> {
+                browse?.drawGl(eye, viewM, projM)
+                dock?.drawGl(eye, viewM, projM)
+            }
             VrScreen.SETTINGS -> {
                 val row = com.daydreamvr.player.state.Settings.ROWS.getOrNull(state.hud.focusIndex)
                 if (row in com.daydreamvr.player.state.Settings.CALIBRATION_ROWS) {
@@ -308,9 +321,10 @@ class AppScene(
     }
 
     override fun onGlDestroy() {
-        listOfNotNull(serverList, browse, settings, calibration, gamepadCal, hud, overlay).forEach { it.onGlDestroy() }
+        listOfNotNull(serverList, browse, dock, settings, calibration, gamepadCal, hud, overlay).forEach { it.onGlDestroy() }
         serverList = null
         browse = null
+        dock = null
         settings = null
         calibration = null
         gamepadCal = null
