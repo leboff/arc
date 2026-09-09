@@ -23,7 +23,7 @@ class CalibrationScreenTest {
         )
         val p = CalibrationScreen.overrideProfile(DeviceProfiles.CARDBOARD_V2, s)
 
-        assertThat(p.interLensDistanceM).isWithin(1e-6f).of(0.066f)
+        assertThat(p.interLensDistanceM).isWithin(1e-6f).of(DeviceProfiles.CARDBOARD_V2.interLensDistanceM)
         assertThat(p.screenToLensDistanceM).isWithin(1e-6f).of(0.0415f)
         assertThat(p.distortionK).usingExactEquality().containsExactly(0.4f, 0.2f).inOrder()
         assertThat(p.dividerPx).isEqualTo(12)

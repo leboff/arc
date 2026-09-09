@@ -1,5 +1,7 @@
 package com.daydreamvr.vrcore.render
 
+import com.daydreamvr.vrcore.optics.EyeOptics
+
 /** Which eye a viewport / frustum belongs to. */
 enum class Eye { LEFT, RIGHT }
 
@@ -26,4 +28,6 @@ data class EyeParams(
     val viewport: Viewport,
     val fov: FovAngles,
     val eyeOffsetX: Float,
+    /** Immutable physical/tangent snapshot used by both projection and warp. */
+    val optics: EyeOptics? = null,
 )

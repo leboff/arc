@@ -130,7 +130,6 @@ class SetupActivity : ComponentActivity() {
                         screenToLensMm = nextProfile.screenToLensDistanceM * 1000f,
                         lensK1 = nextProfile.distortionK[0],
                         lensK2 = nextProfile.distortionK[1],
-                        ipdMm = nextProfile.interLensDistanceM * 1000f,
                     )
                     container.settingsStore.save(updated)
                     container.deviceProfile = nextProfile

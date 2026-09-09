@@ -88,12 +88,10 @@ class CalibrationScreen(panel: PanelSurface, theme: Theme) :
 
         /**
          * Folds the user's live calibration into [base], producing the profile the
-         * renderer and distortion mesh actually use (ARCHITECTURE.md §6.6). IPD is
-         * also applied as the inter-lens distance because it drives the asymmetric
-         * frustum and the distortion centre offset.
+         * renderer and distortion mesh actually use. Observer IPD deliberately
+         * does not alter fixed viewer lens centres, source bounds, or warp UVs.
          */
         fun overrideProfile(base: DeviceProfile, s: Settings): DeviceProfile = base.copy(
-            interLensDistanceM = s.ipdMm / 1000f,
             screenToLensDistanceM = s.screenToLensMm / 1000f,
             distortionK = floatArrayOf(s.lensK1, s.lensK2),
             dividerPx = s.dividerPx,

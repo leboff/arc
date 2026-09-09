@@ -26,7 +26,7 @@ object DeviceProfiles {
         interLensDistanceM = 0.064f,
         screenToLensDistanceM = 0.039f,
         trayToLensHeightM = 0.035f,
-        maxFovDegrees = FovAngles(50f, 50f, 50f, 50f),
+        maxFovDegrees = FovAngles(40f, 40f, 40f, 40f),
         distortionK = floatArrayOf(0.34f, 0.55f),
         chromaticScale = null,
     )
@@ -37,7 +37,7 @@ object DeviceProfiles {
         interLensDistanceM = 0.064f,
         screenToLensDistanceM = 0.039f,
         trayToLensHeightM = 0.035f,
-        maxFovDegrees = FovAngles(50f, 50f, 50f, 50f),
+        maxFovDegrees = FovAngles(40f, 40f, 40f, 40f),
         distortionK = floatArrayOf(0.34f, 0.55f),
         chromaticScale = null,
     )
@@ -48,7 +48,7 @@ object DeviceProfiles {
         interLensDistanceM = 0.064f,
         screenToLensDistanceM = 0.040f,
         trayToLensHeightM = 0.035f,
-        maxFovDegrees = FovAngles(55f, 55f, 50f, 50f),
+        maxFovDegrees = FovAngles(40f, 40f, 40f, 40f),
         distortionK = floatArrayOf(0.36f, 0.42f),
         chromaticScale = null,
     )
@@ -59,7 +59,7 @@ object DeviceProfiles {
         interLensDistanceM = 0.063f,
         screenToLensDistanceM = 0.045f,
         trayToLensHeightM = 0.035f,
-        maxFovDegrees = FovAngles(55f, 55f, 55f, 55f),
+        maxFovDegrees = FovAngles(40f, 40f, 40f, 40f),
         distortionK = floatArrayOf(0.30f, 0.30f),
         chromaticScale = null,
     )

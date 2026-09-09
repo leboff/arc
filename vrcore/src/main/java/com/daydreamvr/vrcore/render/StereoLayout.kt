@@ -1,9 +1,15 @@
 package com.daydreamvr.vrcore.render
 
 import com.daydreamvr.vrcore.profile.DeviceProfile
-import kotlin.math.atan2
-import kotlin.math.min
 import kotlin.math.tan
+import com.daydreamvr.vrcore.optics.DisplayGeometry
+import com.daydreamvr.vrcore.optics.MaxFov
+import com.daydreamvr.vrcore.optics.ObserverGeometry
+import com.daydreamvr.vrcore.optics.OpticsGeometry
+import com.daydreamvr.vrcore.optics.RadialCoefficients
+import com.daydreamvr.vrcore.optics.ViewerOptics
+import com.daydreamvr.vrcore.optics.VerticalAlignment
+import com.daydreamvr.vrcore.optics.TangentBounds
 
 /**
  * Pure, JVM-testable stereo geometry — no GL, no allocation on the callers'
@@ -33,36 +39,29 @@ object StereoLayout {
         ipdM: Float,
         cutoutInsetPx: Int = 0,
     ): Pair<EyeParams, EyeParams> {
-        val halfWidth = surfaceWidthPx / 2
-        val gutter = profile.dividerPx / 2
-        val viewportWidth = (halfWidth - gutter - cutoutInsetPx).coerceAtLeast(1)
-
-        val leftViewport = Viewport(cutoutInsetPx, 0, viewportWidth, surfaceHeightPx)
-        val rightViewport = Viewport(halfWidth + gutter, 0, viewportWidth, surfaceHeightPx)
-
-        // Lens optical centre, measured from the outer edge of each half of the
-        // display (ARCHITECTURE.md §6.4).
-        val lensCentreFromEdgeM = displayWidthM / 2f - profile.interLensDistanceM / 2f
-        val halfOuterM = lensCentreFromEdgeM
-        val halfInnerM = displayWidthM / 2f - lensCentreFromEdgeM
-        val halfDownM = profile.trayToLensHeightM
-        val halfUpM = (displayHeightM - halfDownM).coerceAtLeast(0f)
-        val screenToLensM = profile.screenToLensDistanceM
-
-        val clamp = profile.maxFovDegrees
-        val fov = FovAngles(
-            outer = min(angleDegrees(halfOuterM, screenToLensM), clamp.outer),
-            inner = min(angleDegrees(halfInnerM, screenToLensM), clamp.inner),
-            up = min(angleDegrees(halfUpM, screenToLensM), clamp.up),
-            down = min(angleDegrees(halfDownM, screenToLensM), clamp.down),
+        val optics = OpticsGeometry.compute(
+            DisplayGeometry(displayWidthM.toDouble(), displayHeightM.toDouble(), surfaceWidthPx, surfaceHeightPx,
+                usableInsets = com.daydreamvr.vrcore.optics.PixelInsets(left = cutoutInsetPx, right = cutoutInsetPx)),
+            ViewerOptics(profile.id, lensSeparationM = profile.interLensDistanceM.toDouble(),
+                screenToLensM = profile.screenToLensDistanceM.toDouble(), coefficients = RadialCoefficients(profile.distortionK[0].toDouble(), profile.distortionK[1].toDouble()),
+                verticalAlignment = VerticalAlignment.CENTER, maxFov = MaxFov(profile.maxFovDegrees.outer.toDouble(), profile.maxFovDegrees.inner.toDouble(), profile.maxFovDegrees.up.toDouble(), profile.maxFovDegrees.down.toDouble()), dividerPx = profile.dividerPx),
+            ObserverGeometry(ipdM.toDouble()),
         )
-
-        return EyeParams(Eye.LEFT, leftViewport, fov, -ipdM / 2f) to
-            EyeParams(Eye.RIGHT, rightViewport, fov, ipdM / 2f)
+        fun fov(bounds: TangentBounds) = FovAngles(
+            Math.toDegrees(kotlin.math.atan(-bounds.left)).toFloat(), Math.toDegrees(kotlin.math.atan(bounds.right)).toFloat(),
+            Math.toDegrees(kotlin.math.atan(bounds.top)).toFloat(), Math.toDegrees(kotlin.math.atan(-bounds.bottom)).toFloat())
+        return EyeParams(Eye.LEFT, optics.left.viewport, fov(optics.left.sourceBounds), -ipdM / 2f, optics.left) to
+            EyeParams(Eye.RIGHT, optics.right.viewport, fov(optics.right.sourceBounds), ipdM / 2f, optics.right)
     }
 
-    private fun angleDegrees(oppositeM: Float, adjacentM: Float): Float =
-        Math.toDegrees(atan2(oppositeM.toDouble(), adjacentM.toDouble())).toFloat()
+    fun projectionMatrix(bounds: TangentBounds, near: Float, far: Float, out: FloatArray) {
+        val left = (near * bounds.left).toFloat(); val right = (near * bounds.right).toFloat()
+        val bottom = (near * bounds.bottom).toFloat(); val top = (near * bounds.top).toFloat()
+        out.fill(0f)
+        out[0] = 2f * near / (right - left); out[5] = 2f * near / (top - bottom)
+        out[8] = (right + left) / (right - left); out[9] = (top + bottom) / (top - bottom)
+        out[10] = -(far + near) / (far - near); out[11] = -1f; out[14] = -2f * far * near / (far - near)
+    }
 
     /**
      * Off-centre perspective frustum for a [FovAngles]. [fov.outer]/[fov.inner]

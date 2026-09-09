@@ -124,6 +124,9 @@ class EyeFramebuffer(
     /** Resolves MSAA (if any) and returns the plain colour texture id. */
     fun resolve(): Int {
         if (renderFbo != resolveFbo) {
+            // Blits are framebuffer operations, not eye draws. An inherited eye
+            // scissor can otherwise crop a supersampled resolve.
+            GLES30.glDisable(GLES30.GL_SCISSOR_TEST)
             GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, renderFbo)
             GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, resolveFbo)
             GLES30.glBlitFramebuffer(
@@ -131,6 +134,7 @@ class EyeFramebuffer(
                 GLES30.GL_COLOR_BUFFER_BIT, GLES30.GL_NEAREST,
             )
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+            GLES30.glEnable(GLES30.GL_SCISSOR_TEST)
         }
         return colorTex
     }

@@ -5,7 +5,6 @@ import com.daydreamvr.vrcore.distortion.shaders.DistortionShaders
 import com.daydreamvr.vrcore.gl.GlUtils
 import com.daydreamvr.vrcore.gl.Mesh
 import com.daydreamvr.vrcore.gl.Shader
-import com.daydreamvr.vrcore.profile.DeviceProfile
 import com.daydreamvr.vrcore.render.Eye
 import com.daydreamvr.vrcore.render.EyeParams
 
@@ -33,17 +32,16 @@ class DistortionRenderer(private val gridSize: Int = 40) {
      * Rebuilds both warp meshes if [left]/[right]/[profile] differ from the last
      * build. Safe to call every frame.
      */
-    fun updateMeshes(left: EyeParams, right: EyeParams, profile: DeviceProfile) {
+    fun updateMeshes(left: EyeParams, right: EyeParams) {
         val key = listOf(
-            profile, gridSize,
-            left.viewport, right.viewport,
+            left.optics, right.optics, gridSize,
         )
         if (key == meshKey) return
-        meshKey = key
-        leftMesh?.release()
-        rightMesh?.release()
-        leftMesh = DistortionMesh.build(left, profile, gridSize)
-        rightMesh = DistortionMesh.build(right, profile, gridSize)
+        // Construct both replacements before releasing the coherent installed pair.
+        val newLeft = DistortionMesh.build(left, gridSize)
+        val newRight = try { DistortionMesh.build(right, gridSize) } catch (t: Throwable) { newLeft.release(); throw t }
+        leftMesh?.release(); rightMesh?.release()
+        leftMesh = newLeft; rightMesh = newRight; meshKey = key
     }
 
     /**

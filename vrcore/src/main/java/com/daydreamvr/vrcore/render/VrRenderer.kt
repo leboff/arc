@@ -140,7 +140,7 @@ class VrRenderer(
         pose: FloatArray,
         profile: DeviceProfile,
     ) {
-        distortion.updateMeshes(left, right, profile)
+        distortion.updateMeshes(left, right)
 
         renderEyeToTarget(leftFbo, left, pose, profile)
         renderEyeToTarget(rightFbo, right, pose, profile)
@@ -172,18 +172,11 @@ class VrRenderer(
     }
 
     private fun drawSceneForEye(eye: EyeParams, pose: FloatArray, profile: DeviceProfile) {
-        StereoLayout.projectionMatrix(projectionFov(eye), near, far, projM)
+        val optics = requireNotNull(eye.optics) { "renderer requires an optics snapshot" }
+        StereoLayout.projectionMatrix(optics.sourceBounds, near, far, projM)
         StereoLayout.viewMatrix(pose, eye.eyeOffsetX, profile.neckModelM, viewM)
         scene.draw(eye, viewM, projM)
     }
-
-    /** Right eye mirrors the frustum: temporal side is now +X. */
-    private fun projectionFov(eye: EyeParams): FovAngles =
-        if (eye.eye == Eye.LEFT) {
-            eye.fov
-        } else {
-            FovAngles(eye.fov.inner, eye.fov.outer, eye.fov.up, eye.fov.down)
-        }
 
     fun onGlDestroy() {
         scene.onGlDestroy()

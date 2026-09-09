@@ -35,9 +35,9 @@ class StereoLayoutTest {
             ipdM = 0.063f,
         )
 
-        assertThat(left.fov.outer).isWithin(0.2f).of(44.5f)
-        assertThat(left.fov.inner).isWithin(0.2f).of(39.4f)
-        assertThat(left.fov.outer).isGreaterThan(left.fov.inner)
+        assertThat(left.fov.outer).isWithin(0.2f).of(40f)
+        assertThat(left.fov.inner).isWithin(0.2f).of(40f)
+        assertThat(left.fov.outer).isAtMost(40f)
     }
 
     @Test
@@ -45,7 +45,8 @@ class StereoLayoutTest {
         val (left, right) = StereoLayout.layout(
             2400, 1080, 0.1406f, 0.0633f, cardboardV2, 0.063f,
         )
-        assertThat(left.fov).isEqualTo(right.fov)
+        assertThat(left.fov.outer).isWithin(1e-5f).of(right.fov.inner)
+        assertThat(left.fov.inner).isWithin(1e-5f).of(right.fov.outer)
         assertThat(left.eyeOffsetX).isWithin(1e-6f).of(-right.eyeOffsetX)
         assertThat(right.eyeOffsetX).isWithin(1e-6f).of(0.063f / 2f)
     }

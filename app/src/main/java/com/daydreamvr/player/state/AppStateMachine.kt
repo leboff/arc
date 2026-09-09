@@ -861,7 +861,7 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             return state.copy(settings = settings) to listOf(Effect.ApplySettings(settings))
         }
 
-        /** Cycles the viewer profile and resets the optics overrides to that profile's table values. */
+        /** Viewer selection does not modify global observer IPD. */
         private fun cycleProfile(s: Settings, dir: Int): Settings {
             val all = com.daydreamvr.vrcore.profile.DeviceProfiles.ALL
             val cur = all.indexOfFirst { it.id == s.deviceProfileId }.coerceAtLeast(0)
@@ -869,7 +869,6 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             val next = all[(cur + step) % all.size]
             return s.copy(
                 deviceProfileId = next.id,
-                ipdMm = next.interLensDistanceM * 1000f,
                 screenToLensMm = next.screenToLensDistanceM * 1000f,
                 lensK1 = next.distortionK.getOrElse(0) { 0f },
                 lensK2 = next.distortionK.getOrElse(1) { 0f },
