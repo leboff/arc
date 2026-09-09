@@ -62,7 +62,6 @@ class VrActivity : ComponentActivity() {
     private lateinit var stateMachine: AppStateMachine
     private lateinit var effectRunner: com.daydreamvr.player.state.EffectRunner
     private lateinit var scene: AppScene
-    private lateinit var thumbnailCache: com.daydreamvr.player.media.thumb.ThumbnailCache
     private val overlay = DebugOverlay()
     private val scrub = ScrubController()
     private lateinit var thermalMonitor: ThermalMonitor
@@ -84,8 +83,10 @@ class VrActivity : ComponentActivity() {
             decoder.tick()
             val now = SystemClock.uptimeMillis()
             stateMachine.dispatch(Event.Tick(now))
-            // Coalesced thumbnail arrivals bump thumbGeneration → browse-panel repaint (§9.6).
-            if (thumbnailCache.pollRepaint(now)) stateMachine.dispatch(Event.ThumbnailsArrived)
+            // The cache belongs to AppContainer. The previous activity-local lateinit was
+            // never assigned, so this callback crashed before the first VR frame.
+            val cache = (application as PlayerApp).container.thumbnailCache
+            if (cache.pollRepaint(now)) stateMachine.dispatch(Event.ThumbnailsArrived)
             Choreographer.getInstance().postFrameCallback(this)
         }
     }
