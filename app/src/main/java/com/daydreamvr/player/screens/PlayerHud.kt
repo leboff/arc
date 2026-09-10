@@ -78,11 +78,31 @@ class PlayerHud(panel: PanelSurface, theme: Theme) :
                 previewMs = p.previewPositionMs,
             )
 
-            drawControls(canvas, state, barTop + metrics.px(3.0f))
+            val regions = ArrayList<HitRegion<GazeTarget>>()
+
+            // Timeline seek hit-strip: generous vertical target across duration bar
+            val barW = metrics.widthPx - pad * 2
+            val barHitH = metrics.px(3.0f)
+            val barHitTop = (barTop - metrics.px(0.8f)).coerceAtLeast(0f)
+            val steps = 40
+            val stepW = barW / steps
+            for (step in 0 until steps) {
+                val segLeft = pad + step * stepW
+                val segRight = if (step == steps - 1) pad + barW else pad + (step + 1) * stepW
+                val frac = (step + 0.5f) / steps
+                regions += HitRegion(segLeft, barHitTop, segRight, barHitTop + barHitH, GazeTarget.HudTimeline(frac))
+            }
+
+            drawControls(canvas, state, barTop + metrics.px(3.0f), regions)
         }
     }
 
-    private fun drawControls(canvas: Canvas, state: AppState, top: Float) {
+    private fun drawControls(
+        canvas: Canvas,
+        state: AppState,
+        top: Float,
+        regions: ArrayList<HitRegion<GazeTarget>>,
+    ) {
         val pad = contentLeft()
         val gap = metrics.px(Space.S)
         val slotW = (metrics.widthPx - pad * 2 - gap * (HudState.CONTROLS.size - 1)) / HudState.CONTROLS.size
@@ -90,7 +110,6 @@ class PlayerHud(panel: PanelSurface, theme: Theme) :
         val labelPaint = theme.text(Type.chip, metrics).apply { textAlign = Paint.Align.CENTER }
         val valuePaint = theme.text(Type.meta, metrics).apply { textAlign = Paint.Align.CENTER }
 
-        val regions = ArrayList<HitRegion<GazeTarget>>()
         HudState.CONTROLS.forEachIndexed { i, label ->
             val x = pad + i * (slotW + gap)
             val rect = RectF(x, top, x + slotW, top + chipH)

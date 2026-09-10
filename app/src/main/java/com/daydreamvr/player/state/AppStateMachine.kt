@@ -151,6 +151,17 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                     } else {
                         s
                     }
+                is GazeTarget.HudTimeline ->
+                    if (state.screen == VrScreen.PLAYER) {
+                        val dur = state.playback.durationMs
+                        val preview = if (dur > 0L) (dur * target.fraction.coerceIn(0f, 1f)).toLong() else null
+                        s.copy(
+                            hud = state.hud.copy(lastInputAtMs = state.nowMs),
+                            playback = state.playback.copy(previewPositionMs = preview),
+                        )
+                    } else {
+                        s
+                    }
                 is GazeTarget.SourceTab -> browseGazeFocus(state, s, BrowseFocus.Source(target.index))
                 is GazeTarget.SidebarRow -> browseGazeFocus(state, s, BrowseFocus.Sidebar(target.index))
                 is GazeTarget.GridCell -> browseGazeFocus(state, s, BrowseFocus.Grid(target.index))
@@ -811,7 +822,14 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             if (!hud.visible) {
                 return when (action) {
                     is InputAction.Cancel -> leavePlayer(state)
-                    is InputAction.Confirm -> state.copy(hud = hud.copy(visible = true, lastInputAtMs = state.nowMs)) to noFx()
+                    is InputAction.Confirm -> {
+                        val gazeTarget = state.gaze
+                        if (gazeTarget is GazeTarget.HudTimeline) {
+                            applyPlayerAction(state.copy(hud = hud.copy(visible = true, lastInputAtMs = state.nowMs)), action)
+                        } else {
+                            state.copy(hud = hud.copy(visible = true, lastInputAtMs = state.nowMs)) to noFx()
+                        }
+                    }
                     else -> applyPlayerAction(state.copy(hud = hud.copy(visible = true, lastInputAtMs = state.nowMs)), action)
                 }
             }
@@ -838,7 +856,23 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                 ) to noFx()
                 else -> state to noFx()
             }
-            is InputAction.Confirm -> activateHudControl(state)
+            is InputAction.Confirm -> {
+                val gazeTarget = state.gaze
+                if (gazeTarget is GazeTarget.HudTimeline) {
+                    val dur = state.playback.durationMs
+                    if (dur > 0L) {
+                        val seekMs = (dur * gazeTarget.fraction.coerceIn(0f, 1f)).toLong()
+                        state.copy(
+                            hud = state.hud.copy(lastInputAtMs = state.nowMs),
+                            playback = state.playback.copy(previewPositionMs = null),
+                        ) to listOf(Effect.Seek(seekMs, exact = true))
+                    } else {
+                        state to noFx()
+                    }
+                } else {
+                    activateHudControl(state)
+                }
+            }
             InputAction.Menu -> state to noFx()
             else -> state to noFx()
         }

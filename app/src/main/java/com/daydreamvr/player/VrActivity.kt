@@ -19,6 +19,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import com.daydreamvr.player.data.OpticsSettingsResolver
 import com.daydreamvr.player.debug.DebugOverlay
 import com.daydreamvr.player.input.isGamepad
 import com.daydreamvr.player.input.toGamepadCapabilities
@@ -62,6 +63,7 @@ class VrActivity : ComponentActivity() {
     private lateinit var stateMachine: AppStateMachine
     private lateinit var effectRunner: com.daydreamvr.player.state.EffectRunner
     private lateinit var scene: AppScene
+    private lateinit var brightnessController: com.daydreamvr.player.render.VrBrightnessController
     private val overlay = DebugOverlay()
     private val scrub = ScrubController()
     private lateinit var thermalMonitor: ThermalMonitor
@@ -130,6 +132,7 @@ class VrActivity : ComponentActivity() {
         }
 
         stateMachine = AppStateMachine()
+        brightnessController = com.daydreamvr.player.render.VrBrightnessController(window)
         scene = AppScene(
             stateProvider = { stateMachine.state.value },
             snapshotProvider = { player.snapshot.value },
@@ -177,9 +180,20 @@ class VrActivity : ComponentActivity() {
             },
         ).apply {
             val metrics = resources.displayMetrics
-            displayWidthM = (metrics.widthPixels / metrics.xdpi * INCH_TO_M).coerceIn(0.05f, 0.20f)
-            displayHeightM = (metrics.heightPixels / metrics.ydpi * INCH_TO_M).coerceIn(0.03f, 0.12f)
-            ipdM = 0.063f
+            val disp = com.daydreamvr.player.render.DisplayGeometryProvider.fromDisplayMetrics(
+                metrics.widthPixels, metrics.heightPixels, metrics.xdpi, metrics.ydpi
+            )
+            when (disp) {
+                is com.daydreamvr.player.render.DisplayGeometryProvider.Result.Valid -> {
+                    displayWidthM = disp.geometry.panelWidthM.toFloat()
+                    displayHeightM = disp.geometry.panelHeightM.toFloat()
+                }
+                is com.daydreamvr.player.render.DisplayGeometryProvider.Result.Invalid -> {
+                    displayWidthM = 0.140f
+                    displayHeightM = 0.070f
+                }
+            }
+            ipdM = 0.064f
         }
 
         glSurfaceView = GLSurfaceView(this).apply {
@@ -248,8 +262,7 @@ class VrActivity : ComponentActivity() {
         headTracker.predictionEnabled = settings.predictionEnabled
         headTracker.autoRecenterIdleSeconds = settings.autoRecenterIdleSeconds
 
-        val base = DeviceProfiles.byId(settings.deviceProfileId) ?: DeviceProfiles.DEFAULT
-        container.deviceProfile = CalibrationScreen.overrideProfile(base, settings)
+        container.deviceProfile = OpticsSettingsResolver.resolveDeviceProfile(settings)
         renderer.ipdM = settings.ipdMm / 1000f
         renderer.distortionEnabled = settings.distortionCorrection
 
@@ -356,6 +369,7 @@ class VrActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        brightnessController.applyVrBrightness()
         headTracker.start()
         thermalMonitor.start()
         glSurfaceView.onResume()
@@ -364,6 +378,7 @@ class VrActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
+        brightnessController.restoreBrightness()
         Choreographer.getInstance().removeFrameCallback(frameCallback)
         decoder.stopYaw()
         player.pause()
@@ -373,6 +388,7 @@ class VrActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        brightnessController.restoreBrightness()
         getSystemService(InputManager::class.java)
             .unregisterInputDeviceListener(inputDeviceListener)
         player.release()

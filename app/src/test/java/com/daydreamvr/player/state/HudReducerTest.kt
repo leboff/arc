@@ -96,4 +96,32 @@ class HudReducerTest {
         assertThat(d.state.playback.speed).isWithin(0.001f).of(1.25f)
         assertThat(d.stepEffects).contains(Effect.SetPlaybackSpeed(1.25f))
     }
+
+    @Test
+    fun gazeOnTimelineUpdatesPreviewAndConfirmSeeksDirectly() {
+        val d = inPlayer()
+        // Gaze at 50% along the timeline scrubber (30_000ms of 60_000ms duration)
+        d.send(Event.GazeMoved(GazeTarget.HudTimeline(0.50f)))
+        assertThat(d.state.playback.previewPositionMs).isEqualTo(30_000L)
+
+        // Confirm while gazing at timeline emits Seek effect to that exact time
+        d.input(Fx.confirm)
+        assertThat(d.state.playback.previewPositionMs).isNull()
+        assertThat(d.stepEffects).contains(Effect.Seek(30_000L, exact = true))
+    }
+
+    @Test
+    fun timelineSeekIgnoresNonPositiveDuration() {
+        val d = Driver(
+            AppState(
+                screen = VrScreen.PLAYER,
+                playback = PlaybackSlice(itemKey = "live", title = "Live Stream", durationMs = 0L),
+            )
+        )
+        d.send(Event.GazeMoved(GazeTarget.HudTimeline(0.50f)))
+        assertThat(d.state.playback.previewPositionMs).isNull()
+
+        d.input(Fx.confirm)
+        assertThat(d.stepEffects.filterIsInstance<Effect.Seek>()).isEmpty()
+    }
 }

@@ -17,6 +17,9 @@ sealed interface GazeTarget {
 
     data class HudControl(val index: Int) : GazeTarget
 
+    /** Player HUD timeline scrubber; [fraction] is in [0f, 1f] across duration. */
+    data class HudTimeline(val fraction: Float) : GazeTarget
+
     data class DialogButton(val index: Int) : GazeTarget
 
     /** Absolute row index in [Overlay.ProjectionChooser.OPTIONS]. */
