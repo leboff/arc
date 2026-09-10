@@ -14,7 +14,7 @@ on:
         type: boolean
         default: false
       tag_name:
-        description: 'Release tag name (e.g. v0.1.0)'
+        description: 'Release tag name (e.g. v0.1.0) — must already exist and point at the commit being built'
         required: false
         type: string
         default: ''
@@ -49,8 +49,66 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
+      - name: Resolve version metadata from git
+        id: version
+        run: |
+          # versionName: the git tag with a leading "v" stripped (e.g. v0.9.3 -> 0.9.3).
+          # Falls back to "0.0.0-<shortsha>" for untagged builds (PRs, plain master pushes)
+          # so those builds are never mistaken for a real release.
+          RAW_TAG=$(git describe --tags --exact-match 2>/dev/null || echo "")
+          if [ -n "$RAW_TAG" ]; then
+            VERSION_NAME="${RAW_TAG#v}"
+          else
+            VERSION_NAME="0.0.0-$(git rev-parse --short HEAD)"
+          fi
+          # versionCode: strictly increasing per the architecture review (C7) —
+          # the GitHub Actions run number always increases across the repo's
+          # history, unlike a tag-derived number which could collide or go
+          # backward if tags are re-pushed.
+          VERSION_CODE="${{ github.run_number }}"
+          echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "Resolved versionName=$VERSION_NAME versionCode=$VERSION_CODE"
+
+      - name: Decode release signing keystore
+        id: keystore
+        env:
+          ARC_RELEASE_KEYSTORE_BASE64: ${{ secrets.ARC_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$ARC_RELEASE_KEYSTORE_BASE64" ]; then
+            KEYSTORE_PATH="${{ runner.temp }}/arc-release.keystore"
+            echo "$ARC_RELEASE_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
+            echo "path=$KEYSTORE_PATH" >> "$GITHUB_OUTPUT"
+            echo "Release keystore decoded — builds will be signed with the stable release key."
+          else
+            echo "path=" >> "$GITHUB_OUTPUT"
+            echo "::warning::ARC_RELEASE_KEYSTORE_BASE64 secret not set — falling back to the ephemeral AGP debug keystore. Releases built this way will NOT be update-compatible with prior signed releases."
+          fi
+
       - name: Run Tests and Assemble APKs
-        run: ./gradlew test :app:assembleRelease :app:assembleDebug --stacktrace
+        env:
+          ARC_RELEASE_KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
+          ARC_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ARC_RELEASE_KEYSTORE_PASSWORD }}
+          ARC_RELEASE_KEY_ALIAS: ${{ secrets.ARC_RELEASE_KEY_ALIAS }}
+          ARC_RELEASE_KEY_PASSWORD: ${{ secrets.ARC_RELEASE_KEY_PASSWORD }}
+        run: |
+          ./gradlew test :app:assembleRelease :app:assembleDebug --stacktrace \
+            -PARC_VERSION_NAME="${{ steps.version.outputs.name }}" \
+            -PARC_VERSION_CODE="${{ steps.version.outputs.code }}"
+
+      - name: Clean up decoded keystore
+        if: always()
+        run: rm -f "${{ steps.keystore.outputs.path }}"
+
+      - name: Verify release APK signing fingerprint
+        run: |
+          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          APK=app/build/outputs/apk/release/app-release.apk
+          echo "=== Signing certificate for this build ==="
+          "$APKSIGNER" verify --print-certs "$APK"
+          FINGERPRINT=$("$APKSIGNER" verify --print-certs "$APK" | grep 'SHA-256 digest' | head -1 | awk '{print $NF}')
+          echo "fingerprint=$FINGERPRINT" >> "$GITHUB_ENV"
+          echo "Release APK SHA-256 signing fingerprint: $FINGERPRINT"
 
       - name: Upload Test Reports
         if: always()
@@ -64,18 +122,18 @@ jobs:
         id: package-apks
         run: |
           mkdir -p artifacts
-          VERSION=$(git describe --tags --always 2>/dev/null || echo "latest")
-          
+          VERSION="v${{ steps.version.outputs.name }}"
+
           # Copy release APK (R8 minified)
           if [ -f app/build/outputs/apk/release/app-release.apk ]; then
             cp app/build/outputs/apk/release/app-release.apk "artifacts/Arc-${VERSION}-release.apk"
           fi
-          
+
           # Copy debug APK
           if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
             cp app/build/outputs/apk/debug/app-debug.apk "artifacts/Arc-${VERSION}-debug.apk"
           fi
-          
+
           cd artifacts
           sha256sum *.apk > SHA256SUMS.txt
           cat SHA256SUMS.txt
@@ -104,16 +162,35 @@ jobs:
           name: arc-apks
           path: artifacts
 
-      - name: Determine Tag
+      - name: Determine and validate tag
         id: tag
         run: |
           if [ -n "${{ inputs.tag_name }}" ]; then
-            echo "tag=${{ inputs.tag_name }}" >> $GITHUB_OUTPUT
+            TAG="${{ inputs.tag_name }}"
           elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            TAG="${GITHUB_REF#refs/tags/}"
           else
-            echo "tag=v0.1.0" >> $GITHUB_OUTPUT
+            echo "::error::No tag resolved — refusing to publish an untagged release. Push a git tag (vX.Y.Z) or pass tag_name explicitly."
+            exit 1
           fi
+
+          # Architecture review (C7): a manually-dispatched release must name a
+          # tag that actually exists and points at the commit that was built —
+          # never silently fall back to a placeholder tag like the old "v0.1.0" default.
+          if ! git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag '$TAG' does not exist in this repository. Create and push it first: git tag -a $TAG -m '...' && git push origin $TAG"
+            exit 1
+          fi
+
+          TAG_COMMIT=$(git rev-parse "refs/tags/$TAG^{commit}")
+          BUILT_COMMIT=$(git rev-parse HEAD)
+          if [ "$TAG_COMMIT" != "$BUILT_COMMIT" ]; then
+            echo "::error::Tag '$TAG' points at commit $TAG_COMMIT but this workflow run built commit $BUILT_COMMIT. Refusing to publish a release under a tag that doesn't match the built artifact."
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Publishing release for tag=$TAG at commit=$BUILT_COMMIT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

@@ -4,6 +4,26 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+/**
+ * Version metadata is derived from CI-provided environment/properties so every
+ * tagged release embeds a matching versionName, rather than the previous
+ * hardcoded "0.1.0-phase1" placeholder. Falls back to a local dev value when
+ * building outside CI (e.g. `./gradlew assembleDebug` on a workstation).
+ *
+ *  - ARC_VERSION_NAME: the git tag with the leading "v" stripped (e.g. "0.9.3").
+ *  - ARC_VERSION_CODE: a strictly increasing integer for the Play/APK versionCode,
+ *    supplied by CI as the GitHub Actions run number so it always increases.
+ */
+val resolvedVersionName: String =
+    (project.findProperty("ARC_VERSION_NAME") as String?)
+        ?: System.getenv("ARC_VERSION_NAME")
+        ?: "0.0.0-dev"
+
+val resolvedVersionCode: Int =
+    ((project.findProperty("ARC_VERSION_CODE") as String?) ?: System.getenv("ARC_VERSION_CODE"))
+        ?.toIntOrNull()
+        ?: 1
+
 android {
     namespace = "com.daydreamvr.player"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -12,11 +32,29 @@ android {
         applicationId = "com.daydreamvr.player"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "0.1.0-phase1"
+        versionCode = resolvedVersionCode
+        versionName = resolvedVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters += listOf("arm64-v8a")
+        }
+    }
+
+    signingConfigs {
+        // Stable release signing identity (ARCHITECTURE review C7): reads the
+        // keystore + credentials from environment variables so the same key is
+        // used for every CI build and every release. When those env vars are
+        // absent (local dev build), release falls back to the AGP debug
+        // keystore so `./gradlew assembleRelease` still works on a workstation
+        // without needing release secrets.
+        create("release") {
+            val storeFilePath = System.getenv("ARC_RELEASE_KEYSTORE_PATH")
+            if (!storeFilePath.isNullOrBlank()) {
+                storeFile = file(storeFilePath)
+                storePassword = System.getenv("ARC_RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ARC_RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("ARC_RELEASE_KEY_PASSWORD")
+            }
         }
     }
 
@@ -28,7 +66,13 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            signingConfig = signingConfigs.getByName("debug")
+            // Use the stable release key when configured (CI / release builds);
+            // otherwise fall back to the AGP debug keystore for local dev builds.
+            signingConfig = if (System.getenv("ARC_RELEASE_KEYSTORE_PATH").isNullOrBlank()) {
+                signingConfigs.getByName("debug")
+            } else {
+                signingConfigs.getByName("release")
+            }
         }
     }
 

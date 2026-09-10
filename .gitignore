@@ -9,3 +9,10 @@
 .cxx
 build/
 .worktrees/
+
+# Release signing keystore. NEVER commit this — it's stored as the
+# ARC_RELEASE_KEYSTORE_BASE64 GitHub Actions secret instead (see
+# .github/workflows/build-and-release.yml and docs/RELEASE_SIGNING.md).
+/keystore/
+*.keystore
+*.jks
