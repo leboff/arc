@@ -4,6 +4,7 @@ import android.graphics.PorterDuff
 import com.daydreamvr.player.screens.widgets.PixRect
 import com.daydreamvr.player.screens.widgets.SystemDockWidget
 import com.daydreamvr.player.state.AppState
+import com.daydreamvr.player.state.BrowseViewMode
 import com.daydreamvr.player.state.VrScreen
 import com.daydreamvr.vrcore.ui.HitMap
 import com.daydreamvr.vrcore.ui.PanelSurface
@@ -28,15 +29,17 @@ class SystemDockScreen(panel: PanelSurface, theme: Theme) : ScreenPanel(
     }
 
     private val dockWidget = SystemDockWidget(theme, metrics)
-    private val model = SystemDockWidget.Model()
     private val bounds = PixRect(0f, 0f, panel.widthPx.toFloat(), panel.heightPx.toFloat())
 
     fun render(state: AppState) {
         if (state.screen != VrScreen.BROWSE) return
-        val focus = state.browse.top?.focus
-        val key = listOf(state.screen, focus, state.gaze)
+        val top = state.browse.top
+        val focus = top?.focus
+        val viewMode = top?.viewMode ?: BrowseViewMode.GRID
+        val key = listOf(state.screen, focus, state.gaze, viewMode)
         renderIfChanged(key) { canvas ->
             canvas.drawColor(0, PorterDuff.Mode.CLEAR)
+            val model = SystemDockWidget.Model(viewMode = viewMode)
             val layout = dockWidget.measureLayout(model, bounds)
             dockWidget.draw(canvas, model, layout, focus, state.gaze)
             hitMap = HitMap(dockWidget.hitRegions(layout))

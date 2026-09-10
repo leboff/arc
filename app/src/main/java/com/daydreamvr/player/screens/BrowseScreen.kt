@@ -6,10 +6,12 @@ import com.daydreamvr.player.media.MediaNode
 import com.daydreamvr.player.media.thumb.ThumbnailCache
 import com.daydreamvr.player.screens.widgets.MediaGridWidget
 import com.daydreamvr.player.screens.widgets.MediaInspectorWidget
+import com.daydreamvr.player.screens.widgets.MediaListWidget
 import com.daydreamvr.player.screens.widgets.PixRect
 import com.daydreamvr.player.screens.widgets.SourceSidebarWidget
 import com.daydreamvr.player.state.AppState
 import com.daydreamvr.player.state.BrowseFrame
+import com.daydreamvr.player.state.BrowseViewMode
 import com.daydreamvr.player.state.VrScreen
 import com.daydreamvr.vrcore.render.ProjectionMode
 import com.daydreamvr.vrcore.ui.HitMap
@@ -40,6 +42,7 @@ class BrowseScreen(panel: PanelSurface, theme: Theme) : ScreenPanel(
 
     private val sidebar = SourceSidebarWidget(theme, metrics)
     private val grid = MediaGridWidget(theme, metrics)
+    private val list = MediaListWidget(theme, metrics)
     private val inspector = MediaInspectorWidget(theme, metrics)
 
     private val height = BrowseLayout.HEIGHT_PX.toFloat()
@@ -74,7 +77,7 @@ class BrowseScreen(panel: PanelSurface, theme: Theme) : ScreenPanel(
             state.servers.size, state.localMedia.loaded,
             state.browse.stack.map { it.objectId },
             f.folders.map { it.id }, f.sortedVideos.map { it.id },
-            f.focus, f.sort, f.sidebarScrollTop, f.loading, f.error,
+            f.focus, f.sort, f.viewMode, f.sidebarScrollTop, f.loading, f.error,
             state.gaze, state.thumbGeneration, state.projectionOverrides,
         )
         renderIfChanged(key) { canvas ->
@@ -85,16 +88,25 @@ class BrowseScreen(panel: PanelSurface, theme: Theme) : ScreenPanel(
             val inspectorModel = inspectorModel(state, f)
 
             val sl = sidebar.measureLayout(sidebarModel, sidebarBounds)
-            val gl = grid.measureLayout(gridModel, gridBounds)
             val il = inspector.measureLayout(inspectorModel, inspectorBounds)
 
             sidebar.draw(canvas, sidebarModel, sl, f.focus, state.gaze)
-            grid.draw(canvas, gridModel, gl, f.focus, state.gaze, thumbs)
             inspector.draw(canvas, inspectorModel, il, f.focus, state.gaze, thumbs)
+
+            val centreHitRegions = if (f.viewMode == BrowseViewMode.LIST) {
+                val listModel = MediaListWidget.Model(gridModel.items, gridModel.page, gridModel.pageCount)
+                val ll = list.measureLayout(listModel, gridBounds)
+                list.draw(canvas, listModel, ll, f.focus, state.gaze)
+                list.hitRegions(ll)
+            } else {
+                val gl = grid.measureLayout(gridModel, gridBounds)
+                grid.draw(canvas, gridModel, gl, f.focus, state.gaze, thumbs)
+                grid.hitRegions(gl)
+            }
 
             drawGutters(canvas)
 
-            hitMap = HitMap(sidebar.hitRegions(sl) + grid.hitRegions(gl) + inspector.hitRegions(il))
+            hitMap = HitMap(sidebar.hitRegions(sl) + centreHitRegions + inspector.hitRegions(il))
         }
     }
 

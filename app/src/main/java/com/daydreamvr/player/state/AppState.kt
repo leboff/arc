@@ -102,6 +102,8 @@ data class BrowseFrame(
     val totalMatches: Int = 0,
     val loading: Boolean = true,
     val error: String? = null,
+    /** Centre column view mode: thumbnail cards vs compact textual list (kanban t_4c330258). */
+    val viewMode: BrowseViewMode = BrowseViewMode.GRID,
 ) {
     val rows: List<DidlObject> get() = containers + items
     val loadedCount: Int get() = maxOf(containers.size + items.size, folders.size + videos.size)

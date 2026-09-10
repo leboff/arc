@@ -9,7 +9,7 @@ enum class Icon {
     NONE, FOLDER, VIDEO, PLAY, PAUSE, CHECK, SERVER, PLUS, REFRESH,
     GEAR, CHEVRON, WARNING, SEARCH, BACKSPACE, ENTER, SPACE, SPINNER,
     // UI_REDESIGN_REVIEWED_PLAN.md §4 — same 24×24 grid, desaturated stroke.
-    PHONE, NETWORK, STAR, SORT, GRID, RECENTER, EXIT, ASPECT, CHEVRON_LEFT, CHEVRON_RIGHT,
+    PHONE, NETWORK, STAR, SORT, GRID, LIST, RECENTER, EXIT, ASPECT, CHEVRON_LEFT, CHEVRON_RIGHT,
 }
 
 /**
@@ -143,6 +143,14 @@ object Icons {
                 p.addRect(14f, 4f, 20f, 10f, Path.Direction.CW)
                 p.addRect(4f, 14f, 10f, 20f, Path.Direction.CW)
                 p.addRect(14f, 14f, 20f, 20f, Path.Direction.CW)
+            }
+            Icon.LIST -> {
+                p.moveTo(9f, 6f); p.lineTo(20f, 6f)
+                p.moveTo(4f, 6f); p.lineTo(5.5f, 6f)
+                p.moveTo(9f, 12f); p.lineTo(20f, 12f)
+                p.moveTo(4f, 12f); p.lineTo(5.5f, 12f)
+                p.moveTo(9f, 18f); p.lineTo(20f, 18f)
+                p.moveTo(4f, 18f); p.lineTo(5.5f, 18f)
             }
             Icon.RECENTER -> {
                 p.addCircle(12f, 12f, 4f, Path.Direction.CW)

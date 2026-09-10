@@ -25,4 +25,7 @@ sealed interface UiIntent {
     data class PlayVideo(val fromStart: Boolean) : UiIntent
 
     data class DockAction(val button: GazeTarget.Dock) : UiIntent
+
+    /** Toggles between thumbnail grid and compact textual list view (kanban t_4c330258). */
+    data object ToggleViewMode : UiIntent
 }

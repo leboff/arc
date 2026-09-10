@@ -85,6 +85,7 @@ object Fx {
         focus: BrowseFocus = BrowseFocus.Grid(0),
         sort: SortOrder = SortOrder.TITLE_ASC,
         totalMatches: Int = videos.size,
+        viewMode: BrowseViewMode = BrowseViewMode.GRID,
     ) = BrowseFrame(
         server = null,
         objectId = "local",
@@ -97,6 +98,7 @@ object Fx {
         sort = sort,
         totalMatches = totalMatches,
         loading = false,
+        viewMode = viewMode,
     )
 
     fun browsing(frame: BrowseFrame): AppState =

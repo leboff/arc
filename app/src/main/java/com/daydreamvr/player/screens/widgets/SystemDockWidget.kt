@@ -4,6 +4,7 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import com.daydreamvr.player.media.thumb.ThumbnailCache
 import com.daydreamvr.player.state.BrowseFocus
+import com.daydreamvr.player.state.BrowseViewMode
 import com.daydreamvr.player.state.GazeTarget
 import com.daydreamvr.player.state.GazeTarget.Dock
 import com.daydreamvr.vrcore.ui.HitRegion
@@ -31,6 +32,7 @@ class SystemDockWidget(
     data class Model(
         /** e.g. the current view-mode cell, painted as selected. */
         val highlight: Dock? = null,
+        val viewMode: BrowseViewMode = BrowseViewMode.GRID,
     )
 
     data class Cell(
@@ -48,7 +50,13 @@ class SystemDockWidget(
         val cellW = bounds.width / SLOTS.size
         val cells = SLOTS.mapIndexed { slot, spec ->
             val left = bounds.left + slot * cellW
-            Cell(slot, spec.button, spec.icon, spec.label, PixRect(left, bounds.top, left + cellW, bounds.bottom))
+            val icon = if (spec.button == Dock.VIEW_MODE) {
+                if (model.viewMode == BrowseViewMode.GRID) Icon.GRID else Icon.LIST
+            } else spec.icon
+            val label = if (spec.button == Dock.VIEW_MODE) {
+                if (model.viewMode == BrowseViewMode.GRID) "Grid" else "List"
+            } else spec.label
+            Cell(slot, spec.button, icon, label, PixRect(left, bounds.top, left + cellW, bounds.bottom))
         }
         return Layout(cells, bounds)
     }

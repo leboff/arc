@@ -458,6 +458,7 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                 InputAction.PageUp -> reduceUi(state, UiIntent.PagePrev)
                 is InputAction.Seek ->
                     reduceUi(state, if (action.deltaSeconds > 0) UiIntent.PageNext else UiIntent.PagePrev)
+                InputAction.CycleProjection -> reduceUi(state, UiIntent.ToggleViewMode)
                 InputAction.Menu, InputAction.ToggleHud -> state.copy(screen = VrScreen.SETTINGS) to noFx()
                 else -> state to noFx()
             }
@@ -516,6 +517,14 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                 InputAction.Dir.LEFT -> BrowseFocus.Sidebar(0).takeIf { frame.folders.isNotEmpty() }
                 InputAction.Dir.RIGHT -> BrowseFocus.Inspector(GazeTarget.Action.PLAY)
                 else -> null
+            }
+            if (frame.viewMode == BrowseViewMode.LIST) {
+                return when (dir) {
+                    InputAction.Dir.LEFT -> BrowseFocus.Sidebar(sidebarIndexFor(frame))
+                    InputAction.Dir.RIGHT -> BrowseFocus.Inspector(GazeTarget.Action.PLAY)
+                    InputAction.Dir.DOWN -> if (index < count - 1) BrowseFocus.Grid(index + 1) else null
+                    InputAction.Dir.UP -> if (index > 0) BrowseFocus.Grid(index - 1) else null
+                }
             }
             val col = index % GRID_COLS
             return when (dir) {
@@ -594,6 +603,7 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             is BrowseFocus.Dock -> UiIntent.DockAction(f.button)
             is BrowseFocus.Toolbar -> when (f.chip) {
                 GazeTarget.Chip.SORT -> UiIntent.SelectSort
+                GazeTarget.Chip.VIEW -> UiIntent.ToggleViewMode
                 else -> null
             }
         }
@@ -612,6 +622,7 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                 ) to noFx()
             }
             UiIntent.SelectSort -> selectSort(state)
+            UiIntent.ToggleViewMode -> toggleViewMode(state)
             UiIntent.PageNext -> pageGrid(state, forward = true)
             UiIntent.PagePrev -> pageGrid(state, forward = false)
             is UiIntent.NavigateBreadcrumb -> {
@@ -690,6 +701,7 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                         server = null, objectId = folderId, title = folder?.title ?: "Folder",
                         source = src, videos = vids, loading = false,
                         totalMatches = vids.size, focus = BrowseFocus.Grid(0),
+                        viewMode = top.viewMode,
                     )
                     state.copy(browse = state.browse.push(child)) to noFx()
                 }
@@ -698,11 +710,18 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                     val child = BrowseFrame(
                         server = server, objectId = folderId, title = "Loading…",
                         source = src, focus = BrowseFocus.Grid(0),
+                        viewMode = top.viewMode,
                     )
                     state.copy(browse = state.browse.push(child)) to
                         listOf(Effect.BrowseNode(src, folderId, PageRequest.DEFAULT))
                 }
             }
+        }
+
+        private fun toggleViewMode(state: AppState): Pair<AppState, List<Effect>> {
+            val frame = state.browse.top ?: return state to noFx()
+            val next = frame.copy(viewMode = frame.viewMode.toggle())
+            return state.copy(browse = state.browse.replaceTop(next)) to noFx()
         }
 
         private fun selectSort(state: AppState): Pair<AppState, List<Effect>> {
@@ -781,7 +800,7 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                     screen = VrScreen.SETTINGS,
                     hud = state.hud.copy(focusIndex = Settings.ROWS.indexOf("Screen size").coerceAtLeast(0)),
                 ) to noFx()
-            GazeTarget.Dock.VIEW_MODE -> state to noFx() // grid/list toggle lands with the M5 widgets
+            GazeTarget.Dock.VIEW_MODE -> reduceUi(state, UiIntent.ToggleViewMode)
             GazeTarget.Dock.RESCAN ->
                 if (state.browse.top?.mediaSource is MediaSource.Local) {
                     state to listOf(Effect.LoadLocalMedia)
