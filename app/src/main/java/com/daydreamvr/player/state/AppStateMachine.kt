@@ -11,6 +11,7 @@ import com.daydreamvr.upnp.model.DidlItem
 import com.daydreamvr.upnp.model.PageRequest
 import com.daydreamvr.vrcore.input.InputAction
 import com.daydreamvr.vrcore.render.ProjectionMode
+import com.daydreamvr.vrcore.ui.widgets.Timeline
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -144,7 +145,7 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                     if (state.screen == VrScreen.PLAYER) {
                         s.copy(
                             hud = state.hud.copy(
-                                focusIndex = target.index.coerceIn(0, HudState.CONTROLS.size - 1),
+                                focusIndex = target.index.coerceIn(0, HudState.NAV_CONTROLS.size - 1),
                                 lastInputAtMs = state.nowMs,
                             ),
                         )
@@ -154,7 +155,7 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                 is GazeTarget.HudTimeline ->
                     if (state.screen == VrScreen.PLAYER) {
                         val dur = state.playback.durationMs
-                        val preview = if (dur > 0L) (dur * target.fraction.coerceIn(0f, 1f)).toLong() else null
+                        val preview = Timeline.seekPosition(dur, target.fraction.toDouble())
                         s.copy(
                             hud = state.hud.copy(lastInputAtMs = state.nowMs),
                             playback = state.playback.copy(previewPositionMs = preview),
@@ -224,6 +225,10 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                 focusIndex = focus,
                 focus = browseFocus,
                 scrollTop = clampScroll(focus, frame.scrollTop, loaded),
+                mediaListScrollTop = ensureVisible(
+                    (browseFocus as? BrowseFocus.Grid)?.index ?: frame.gridFocusIndex,
+                    frame.mediaListScrollTop, videos.size, BROWSE_VISIBLE_ROWS,
+                ),
                 loading = false,
                 error = null,
             )
@@ -580,6 +585,10 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                 gridReturn = (focus as? BrowseFocus.Grid)?.index ?: frame.gridReturn,
                 focusIndex = legacyIdx,
                 scrollTop = clampScroll(legacyIdx, frame.scrollTop, frame.rows.size),
+                mediaListScrollTop = ensureVisible(
+                    (focus as? BrowseFocus.Grid)?.index ?: frame.gridFocusIndex,
+                    frame.mediaListScrollTop, frame.sortedVideos.size, BROWSE_VISIBLE_ROWS,
+                ),
                 sidebarScrollTop = sidebarTop,
             )
         }
@@ -781,7 +790,9 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             val video = frame.focusedVideo ?: return state to noFx()
             val key = MediaKey(frame.mediaSource.id, video.id)
             val override = state.projectionOverrides[key.storageKey()]
-            return state to listOf(
+            val entries = frame.sortedVideos.map { QueueEntry(MediaKey(frame.mediaSource.id, it.id), it) }
+            val queue = PlaybackQueue(entries, frame.gridFocusIndex.coerceIn(0, entries.lastIndex))
+            return state.copy(playback = state.playback.copy(queue = queue)) to listOf(
                 Effect.PlayNode(
                     node = video,
                     key = key,
@@ -870,9 +881,15 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             is InputAction.Nav -> when (action.dir) {
                 InputAction.Dir.LEFT, InputAction.Dir.RIGHT -> state.copy(
                     hud = state.hud.copy(
-                        focusIndex = moveFocus(state.hud.focusIndex, action.dir, HudState.CONTROLS.size),
+                        focusIndex = moveFocus(state.hud.focusIndex, action.dir, HudState.NAV_CONTROLS.size),
                     ),
                 ) to noFx()
+                InputAction.Dir.UP -> state.copy(hud = state.hud.copy(
+                    focusIndex = if (state.hud.focusIndex >= 3) (state.hud.focusIndex - 3).coerceIn(0, 2) else state.hud.focusIndex,
+                )) to noFx()
+                InputAction.Dir.DOWN -> state.copy(hud = state.hud.copy(
+                    focusIndex = if (state.hud.focusIndex < 3) (state.hud.focusIndex + 3).coerceIn(3, 6) else state.hud.focusIndex,
+                )) to noFx()
                 else -> state to noFx()
             }
             is InputAction.Confirm -> {
@@ -880,7 +897,8 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                 if (gazeTarget is GazeTarget.HudTimeline) {
                     val dur = state.playback.durationMs
                     if (dur > 0L) {
-                        val seekMs = (dur * gazeTarget.fraction.coerceIn(0f, 1f)).toLong()
+                        val seekMs = Timeline.seekPosition(dur, gazeTarget.fraction.toDouble())
+                            ?: return state to noFx()
                         state.copy(
                             hud = state.hud.copy(lastInputAtMs = state.nowMs),
                             playback = state.playback.copy(previewPositionMs = null),
@@ -897,15 +915,35 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
         }
 
         private fun activateHudControl(state: AppState): Pair<AppState, List<Effect>> =
-            when (HudState.CONTROLS.getOrNull(state.hud.focusIndex)) {
+            when (if (state.playback.queue.entries.isEmpty()) HudState.CONTROLS.getOrNull(state.hud.focusIndex)
+                  else HudState.NAV_CONTROLS.getOrNull(state.hud.focusIndex)) {
                 "Back" -> leavePlayer(state)
                 "Speed" -> {
                     val next = nextSpeed(state.playback.speed)
                     state.copy(playback = state.playback.copy(speed = next)) to listOf(Effect.SetPlaybackSpeed(next))
                 }
                 "Projection" -> openProjectionChooserFromPlayer(state)
+                "Screen size" -> if (state.playback.projection.isSpherical) state to noFx() else state.copy(
+                    overlay = Overlay.Confirm(
+                        "Screen size", listOf("40°", "50°", "60°", "70°", "80°", "90°"),
+                        ((state.settings.screenWidthDegrees - 40f) / 10f).toInt().coerceIn(0, 5),
+                        tag = "player-screen-size",
+                    ),
+                ) to noFx()
+                "Play/Pause" -> state to listOf(Effect.SetPlayWhenReady(null))
+                "Previous" -> queueSkip(state, -1)
+                "Next" -> queueSkip(state, +1)
                 else -> state to noFx()
             }
+
+        private fun queueSkip(state: AppState, delta: Int): Pair<AppState, List<Effect>> {
+            val q = state.playback.queue
+            val destination = q.entries.getOrNull(q.index + delta) ?: return state to noFx()
+            val override = state.projectionOverrides[destination.key.storageKey()]
+            return state.copy(playback = state.playback.copy(queue = q.copy(index = q.index + delta))) to listOf(
+                Effect.PlayNode(destination.node, destination.key, 0L, override, skipResumeCheck = true),
+            )
+        }
 
         private fun reduceSettings(state: AppState, action: InputAction): Pair<AppState, List<Effect>> = when (action) {
             is InputAction.Nav -> when (action.dir) {
@@ -1001,6 +1039,11 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                     cleared.copy(pendingResume = null) to
                         listOf(Effect.Play(pending.item, pending.serverUdn, start, null, skipResumeCheck = true))
                 }
+                "player-screen-size" -> {
+                    val degrees = choice.removeSuffix("°").toFloatOrNull() ?: return cleared to noFx()
+                    val settings = state.settings.copy(screenWidthDegrees = degrees)
+                    cleared.copy(settings = settings) to listOf(Effect.ApplySettings(settings))
+                }
                 else -> cleared to noFx()
             }
         }
@@ -1021,7 +1064,9 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                 InputAction.Dir.UP, InputAction.Dir.DOWN -> {
                     val count = Overlay.ProjectionChooser.OPTIONS.size
                     val next = moveFocus(overlay.focusIndex, action.dir, count)
-                    state.copy(overlay = overlay.copy(focusIndex = next)) to noFx()
+                    val top = ensureVisible(next, overlay.scrollTop, count,
+                        state.listWindow.projectionChooser.coerceAtLeast(1))
+                    state.copy(overlay = overlay.copy(focusIndex = next, scrollTop = top)) to noFx()
                 }
                 else -> state to noFx()
             }
@@ -1082,6 +1127,19 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             if (focus < st) st = focus
             if (focus >= st + window) st = focus - window + 1
             return st.coerceIn(0, maxOf(0, total - window))
+        }
+
+        fun ensureVisible(focus: Int, previousTop: Int, count: Int, visibleRows: Int): Int {
+            require(visibleRows > 0)
+            if (count <= 0) return 0
+            val f = focus.coerceIn(0, count - 1)
+            val maximum = (count - visibleRows).coerceAtLeast(0)
+            val top = previousTop.coerceIn(0, maximum)
+            return when {
+                f < top -> f
+                f >= top + visibleRows -> f - visibleRows + 1
+                else -> top
+            }.coerceIn(0, maximum)
         }
 
         private fun nextProjection(mode: ProjectionMode): ProjectionMode {

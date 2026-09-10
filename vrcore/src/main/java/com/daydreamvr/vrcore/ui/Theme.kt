@@ -168,6 +168,12 @@ object Type {
     val chip = Token(1.10f, medium = true, colorRole = Role.ACCENT)
     val numeral = Token(1.20f, medium = true, tabularFigures = true)
 
+    /** Compact media-list exception: intentionally below the normal 1° policy. */
+    val compactListTitle = Token(0.85f, medium = false)
+    val compactListMeta = Token(0.75f, medium = false, colorRole = Role.TERTIARY)
+    val compactListDuration = Token(0.85f, medium = false, tabularFigures = true)
+    val compactListBadge = Token(0.75f, medium = false, colorRole = Role.ACCENT)
+
     val ALL = listOf(screenTitle, sectionLabel, rowTitle, rowSubtitle, meta, chip, numeral)
 
     const val TITLE_LINE_HEIGHT = 1.22f

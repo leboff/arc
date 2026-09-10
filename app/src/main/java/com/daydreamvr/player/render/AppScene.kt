@@ -256,7 +256,7 @@ class AppScene(
         // null target that must NOT fall through to a farther surface (§3.3).
         val resolved = GazeSurfaces.resolve(
             ray,
-            surfaces.map { s -> GazeSurfaces.Surface(s.gazeGeometry()) { x, y -> s.hitMap.hitTest(x, y) } },
+            surfaces.map { s -> GazeSurfaces.Surface(s.gazeGeometry()) { x, y -> s.hitTest(x, y) } },
         )
         val best = resolved.hit
         val bestTarget = resolved.target

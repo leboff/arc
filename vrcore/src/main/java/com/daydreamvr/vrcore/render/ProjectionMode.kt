@@ -7,6 +7,7 @@ enum class DomeFov(val degrees: Int) {
 }
 
 enum class StereoPacking { MONO, SBS, TOPBOTTOM }
+enum class ProjectionMapping { CYLINDER, EQUIRECTANGULAR, EQUIDISTANT_FISHEYE }
 
 /**
  * How a single decoded video frame maps onto the virtual screen and onto the two
@@ -43,10 +44,20 @@ enum class ProjectionMode(
     EQUIRECT_190_TOPBOTTOM(StereoPacking.TOPBOTTOM, DomeFov.DEG_190),
     EQUIRECT_200_TOPBOTTOM(StereoPacking.TOPBOTTOM, DomeFov.DEG_200),
     EQUIRECT_220_TOPBOTTOM(StereoPacking.TOPBOTTOM, DomeFov.DEG_220),
-    EQUIRECT_360;
+    EQUIRECT_360,
+    FISHEYE_180_SBS(StereoPacking.SBS),
+    FISHEYE_190_SBS(StereoPacking.SBS),
+    FISHEYE_200_SBS(StereoPacking.SBS),
+    FISHEYE_220_SBS(StereoPacking.SBS);
 
     val isStereo: Boolean get() = packing != StereoPacking.MONO
-    val isSpherical: Boolean get() = domeFov != null || this == EQUIRECT_360
+    val isSpherical: Boolean get() = domeFov != null || this == EQUIRECT_360 || mapping == ProjectionMapping.EQUIDISTANT_FISHEYE
+    val mapping: ProjectionMapping get() = when {
+        name.startsWith("FISHEYE") -> ProjectionMapping.EQUIDISTANT_FISHEYE
+        name.startsWith("EQUIRECT") || this == EQUIRECT_360 -> ProjectionMapping.EQUIRECTANGULAR
+        else -> ProjectionMapping.CYLINDER
+    }
+    val fisheyeFovDegrees: Int? get() = if (mapping == ProjectionMapping.EQUIDISTANT_FISHEYE) name.substringAfter('_').substringBefore('_').toInt() else null
     val label: String get() = domeFov?.let {
         it.label + when (packing) {
             StereoPacking.MONO -> ""
@@ -56,6 +67,7 @@ enum class ProjectionMode(
     } ?: when (this) {
         FLAT -> "Flat"
         EQUIRECT_360 -> "VR360"
+        in listOf(FISHEYE_180_SBS, FISHEYE_190_SBS, FISHEYE_200_SBS, FISHEYE_220_SBS) -> "Fisheye ${fisheyeFovDegrees}° SBS"
         else -> name.lowercase().replace('_', ' ')
     }
 

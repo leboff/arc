@@ -1,0 +1,32 @@
+I've completed the urgent playback/crash/navigation blockers (Parts 1, 2, 4). **Part 3 (the 3-column UI redesign — plan milestones M4/M5/M8) is not done** — see the honest assessment at the end.
+
+## Done and committed
+
+Branch `fix/playback-crash-guard-and-nav` (off `master`), two commits:
+
+### Part 1 — playback stability, MIME, crash handling
+- **`ExoVideoPlayer.kt`**
+  - `OkHttpDataSource.Factory` → wrapped in `DefaultDataSource.Factory(context, httpFactory)` and fed to `DefaultMediaSourceFactory`. Local `content://` / `file://` playback was failing 100%; UPnP http(s) path is byte-for-byte unchanged.
+  - `loadCurrentResource()` now builds `MediaItem.Builder().setUri(...).setMimeType(resource.mimeType)` (only when present and not `*`), so extensionless Gerbera DLNA URLs stop failing byte-sniffing.
+  - `classify()` maps `ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED` and `ERROR_CODE_PARSING_CONTAINER_MALFORMED` to actionable messages.
+- **`AppScene.update()`** — `video.updateIfDirty()` wrapped in `runCatching { }.onFailure { Log.e(...) }` so a surface/decoder throw can't kill the GL thread and bounce to `SetupActivity`.
+- **`PlayerApp.kt`** — uncaught-exception handler persists timestamp + stack trace to `File(filesDir, "last_crash.txt")`.
+- **`SetupActivity.kt`** — `onResume()` shows a red crash banner with the saved trace and a "Clear Crash Log" button when the file is present and non-empty.
+
+### Part 2 — player escape hatch
+- **`reducePlayerInput`** — B/Cancel with HUD hidden just shows the HUD; B/Cancel with HUD visible calls `leavePlayer(state)` → `VrScreen.BROWSE`. No more endless toggle.
+- **`HudState.CONTROLS`** = `["Back", "Projection", "Speed", "Screen size"]`; `activateHudControl` routes `"Back"` → `leavePlayer(state)`, so gaze + A also exit.
+- **`HudReducerTest`** updated for the new semantics.
+
+### Part 4 — verification
+- `./gradlew testDebugUnitTest --no-daemon` — **green** (`:app`, `:vrcore`, `:playback`, `:upnp`).
+- `./gradlew assembleRelease --no-daemon` — **succeeds**.
+- Signed APK at **`/root/Arc-v0.3.1-release.apk`** (`apksigner verify` passes). Note: this project's release build self-signs via its `signingConfig`, so the output is `app-release.apk` (already debug-keystore signed), not `app-release-unsigned.apk` as the prompt's command assumed — I copied/verified it to the requested path.
+
+## Part 3 — NOT done (needs its own focused effort)
+
+The 3-column UI is milestones M4 + M5 + M8 of `UI_REDESIGN_REVIEWED_PLAN.md`: a state-machine refactor (`BrowseFocus`, `SourcesState`, `UiIntent`, new events/effects, `intentForFocus`, column-edge navigation, strangler steps S4–S6 with ~8 red-first acceptance tests), four new widgets with pure `measureLayout`/`hitRegions` + layout tests, then rewiring `BrowseScreen`, `AppScene`, and `EffectRunner`. That's a multi-thousand-line, deeply renderer-coupled build that I can't land correctly and test-green in one pass without leaving the tree broken.
+
+Scaffolding from earlier milestones is already in place (`media/MediaModel.kt`, `UpnpAdapter`, `media/local/*`, `media/thumb/*`, `BrowseLayout`/`DockLayout`, multi-surface gaze, `GroundGrid`). `BrowseScreen.kt` is still the legacy Breadcrumb + `ListView` + detail card.
+
+Recommendation: run Part 3 as a dedicated sprint, one commit per milestone (M4 → M5 → M8) with the red-first tests each milestone lists — or, if you want it parallelized, spin up a subagent per milestone. Status is saved to memory.

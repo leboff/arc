@@ -5,6 +5,7 @@ import com.daydreamvr.upnp.model.DidlItem
 import com.daydreamvr.upnp.model.DidlObject
 import com.daydreamvr.player.media.MediaNode
 import com.daydreamvr.player.media.MediaSource
+import com.daydreamvr.player.media.MediaKey
 import com.daydreamvr.player.screens.VrKeyboard
 import com.daydreamvr.upnp.model.MediaServer
 import com.daydreamvr.vrcore.render.ProjectionMode
@@ -68,7 +69,13 @@ data class LocalMedia(
 )
 
 /** Visible row counts the renderer measured for each scrolling list (UI_GAZE_PLAN.md §3.3, F5). */
-data class ListWindow(val browse: Int = 8, val settings: Int = 8, val servers: Int = 5)
+data class ListWindow(
+    val browse: Int = 8,
+    val settings: Int = 8,
+    val servers: Int = 5,
+    val mediaList: Int = 8,
+    val projectionChooser: Int = 1,
+)
 
 enum class DiscoveryState { IDLE, RUNNING, FAILED }
 
@@ -89,6 +96,8 @@ data class BrowseFrame(
     val videos: List<MediaNode.Video> = emptyList(),
     val focusIndex: Int = 0,
     val scrollTop: Int = 0,
+    /** Independent absolute window cursor for compact media-list rendering. */
+    val mediaListScrollTop: Int = 0,
     /** Which media source this frame belongs to; null means "derive `Upnp(server)`". */
     val source: MediaSource? = null,
     /** Grid sort order (§10.4, R18). */
@@ -166,7 +175,11 @@ data class PlaybackSlice(
     val previewPositionMs: Long? = null,
     val projection: ProjectionMode = ProjectionMode.FLAT,
     val failure: String? = null,
+    val queue: PlaybackQueue = PlaybackQueue(),
 )
+
+data class QueueEntry(val key: MediaKey, val node: MediaNode.Video)
+data class PlaybackQueue(val entries: List<QueueEntry> = emptyList(), val index: Int = -1)
 
 data class HudState(
     val visible: Boolean = false,
@@ -178,7 +191,9 @@ data class HudState(
         const val AUTO_HIDE_MS = 4_000L
 
         /** The focusable HUD controls, left to right (ARCHITECTURE.md §11.4). */
+        /** Legacy label order retained for saved/controller compatibility. */
         val CONTROLS = listOf("Back", "Projection", "Speed", "Screen size")
+        val NAV_CONTROLS = listOf("Previous", "Play/Pause", "Next", "Back", "Projection", "Speed", "Screen size")
     }
 }
 
@@ -208,6 +223,7 @@ sealed interface Overlay {
         /** Set only for [ProjectionChooserOrigin.BROWSE_OVERRIDE]; the video the choice applies to. */
         val targetKey: String? = null,
         val focusIndex: Int = 0,
+        val scrollTop: Int = 0,
     ) : Overlay {
         companion object {
             /** Auto (null) first, then every mode in declaration order. */

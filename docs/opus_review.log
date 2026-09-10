@@ -1,0 +1,23 @@
+Committed as `02cc6da`. `docs/UI_REDESIGN_REVIEWED_PLAN.md` (1641 lines, 18 sections).
+
+## What the review found
+
+The v1.0 plan's product vision is right; it is not executable as written. 24 findings, four of them hard blockers:
+
+**R1 — the architectural gap v1.0 never mentions.** `AppScene.runGazePipeline` raycasts exactly *one* `ScreenPanel` per frame (`AppScene.kt:212`). Three columns plus a detached dock at a different depth is blocked until that becomes a multi-surface nearest-hit pass. That work isn't in v1.0's milestones at all — it's now M2.
+
+**R2 — the geometry fails an existing test.** `1920×1080` at `2.81 m × 1.45 m` is 8.3% anisotropic (683.3 vs 744.8 px/m). `PanelAspectTest` is a live, passing, enforced invariant; every glyph would render stretched. Re-derived to `1536 × 800` @ `2.80 m × 1.458333 m` — isotropy exactly 1.000000.
+
+**R3 — local playback cannot work.** `ExoVideoPlayer` builds `DefaultMediaSourceFactory(OkHttpDataSource.Factory(...))` (`ExoVideoPlayer.kt:153,163`) — HTTP-only upstream. Every `content://` URI throws. Needs `DefaultDataSource.Factory(context, httpFactory)`.
+
+**R4** — `ScreenPanel.anchor` is hard-wired to `PanelAnchor()` at 2.5 m, so the dock can't sit at any other depth and v1.0's R=2.30 m is literally unreachable.
+
+Three deliberate deviations from your brief, each argued in the doc:
+
+- **R=2.50 m retained, not 2.30 m.** With angle-first sizing R is ergonomically inert — apparent size is angular, vergence differs by 0.13°, accommodation is lens-fixed. Changing it costs re-verification of every panel and the F7 invariant for nothing measurable.
+- **~64° span, not 70°.** ±35° sits exactly on `PanelAnchor.followThresholdDeg = 35f` — reading a sidebar edge would make the panel slide away from you. At ±32.086° with the threshold raised to 45° there's real margin, and all three column centres land inside the existing ±25° comfort box.
+- **`Bitmap` and `Uri` banned from `AppState`.** A Bitmap in state makes `renderIfChanged`'s equality check identity-based (repaint every frame, defeating R4); `Uri` under `unitTests.isReturnDefaultValues = true` returns null, making every red-first reducer assertion vacuous.
+
+Also worth flagging: v1.0's Milestone 2 was a big-bang domain refactor across `AppState`, `Event`, `Effect`, `EffectRunner`, `BrowseScreen` and four test files — with verified-working UPnP playback on the other side. §10.7 sequences it as six commits, green at every arrow.
+
+The plan carries exact derived geometry (§18 appendix), pure Kotlin contracts, and 45 numbered red-first acceptance tests where each one states the defect it fails against first. Nothing was built or run — this is the blueprint only, as asked.

@@ -1,0 +1,25 @@
+Written: `docs/FORMAT_SUPPORT_PLAN.md` (1713 lines, 15 sections), grounded in the tree at `4124200`.
+
+## What the diagnosis actually found
+
+Two reported symptoms, **six** distinct defects — and only one is the codec problem everyone assumes:
+
+- **D1** — `ExoVideoPlayer.kt:153,163` passes `OkHttpDataSource.Factory` straight into `DefaultMediaSourceFactory`. Every `content://` URI throws before a demuxer is consulted. This is R3/M8 from the reviewed plan, still unfixed.
+- **D2** — even fixed, local files have no route: `Effect.Play` is typed `DidlItem` (`Effect.kt:22`) and `PlayRequest.rankedResources` is `List<upnp.model.Resource>` (`VideoPlayer.kt:72`). `MediaCursorMapper` produces `PlaybackRef.Local` with nowhere to go.
+- **D3** — `classify()` (`:247-273`) has no arm for `ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED`. It falls to `Unknown`, and the raw ExoPlayer string *is* the "container not supported" text users are quoting.
+- **D4** — `media3-decoder-ffmpeg` is not in the catalog, but `DefaultRenderersFactory` finds extensions by `Class.forName` and swallows the miss. So `EXTENSION_RENDERER_MODE_PREFER` is a no-op and the whole `ForceSoftwareAudio` branch is a placebo that costs a player rebuild and then fails identically. ARCHITECTURE.md §10.1 claims this extension is present.
+- **D5** — the one that changes the requirement: an unsupported audio codec is `FORMAT_UNSUPPORTED_TYPE`, which the track selector *never* selects under any parameters. So MKV/DTS plays **video perfectly, silently, with no error at all**. `AudioTrackInitFailed` never fires, so D4's placebo never even gets asked. Detection has to be a positive check in `onTracksChanged`, not an error handler.
+- **D6** — the renderer-mode branches are swapped (`PREFER` normally, `ON` when forcing software — backwards). Invisible today because of D4; becomes a live thermal regression the moment the extension lands, so it must ship in the same commit.
+
+## The recommendation
+
+Hybrid (Option C), built **F0 → F1 → F2**, each independently shippable. The pivotal technical point: `media3-decoder-ffmpeg` is **audio-only** — it closes the entire AC-3/DTS/TrueHD column but nothing of the ASF/WMV/VC-1/RealMedia gap. That asymmetry is why "just add the FFmpeg extension" is insufficient and LibVLC has to be a second engine rather than a replacement.
+
+LibVLC stays the *fallback* because Media3's `VideoFrameReleaseHelper` (Choreographer-hooked, vsync-snapped frame release) has no VLC equivalent — imperceptible flat, but a per-frame judder in a world-locked stereo panel. And VLC is configured `--codec=mediacodec_ndk,none` with software video decode gated behind a pure `VlcCodecPolicy` (≤1080p **and** thermal ≤ LIGHT), because the value it adds is its *demuxer*, not its software video decoder.
+
+Two things worth flagging as judgment calls I made rather than found:
+
+- **`media3-decoder-ffmpeg` has no Maven artifact** — it needs an NDK bake. I recommend baking the AAR once and checking it in (§9.2 has the full script), rather than a composite build or an unaudited JitPack mirror. A binary in git is a real cost; I argued it beats the alternatives.
+- **AC-3/DTS patent licensing is orthogonal to FFmpeg's LGPL** and is a business decision, not an engineering one. Flagged in §4.6 and §13; engineering can proceed, distribution is the gate.
+
+Several version numbers and the `androidx/media` module layout are marked **[verify]** with the command that checks them — I couldn't confirm them from inside the repo. The APK-size figures in §1.3 explicitly say to measure rather than trust them.

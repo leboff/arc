@@ -80,6 +80,8 @@ abstract class ScreenPanel(
         protected set
 
     /** The world placement the gaze raycast tests against. */
+    open fun hitTest(xPx: Float, yPx: Float): GazeTarget? = hitMap.hitTest(xPx, yPx)
+
     open fun gazeGeometry(): PanelGeometry = PanelGeometry(
         modelYawRad = modelYawRad,
         distanceM = anchor.distanceM,

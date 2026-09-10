@@ -77,7 +77,7 @@ class BrowseScreen(panel: PanelSurface, theme: Theme) : ScreenPanel(
             state.servers.size, state.localMedia.loaded,
             state.browse.stack.map { it.objectId },
             f.folders.map { it.id }, f.sortedVideos.map { it.id },
-            f.focus, f.sort, f.viewMode, f.sidebarScrollTop, f.loading, f.error,
+            f.focus, f.sort, f.viewMode, f.sidebarScrollTop, f.mediaListScrollTop, f.loading, f.error,
             state.gaze, state.thumbGeneration, state.projectionOverrides,
         )
         renderIfChanged(key) { canvas ->
@@ -94,7 +94,13 @@ class BrowseScreen(panel: PanelSurface, theme: Theme) : ScreenPanel(
             inspector.draw(canvas, inspectorModel, il, f.focus, state.gaze, thumbs)
 
             val centreHitRegions = if (f.viewMode == BrowseViewMode.LIST) {
-                val listModel = MediaListWidget.Model(gridModel.items, gridModel.page, gridModel.pageCount)
+                val listModel = MediaListWidget.Model(
+                    items = gridModel.items,
+                    page = gridModel.page,
+                    pageCount = gridModel.pageCount,
+                    scrollTop = f.mediaListScrollTop,
+                    visibleRows = state.listWindow.mediaList,
+                )
                 val ll = list.measureLayout(listModel, gridBounds)
                 list.draw(canvas, listModel, ll, f.focus, state.gaze)
                 list.hitRegions(ll)

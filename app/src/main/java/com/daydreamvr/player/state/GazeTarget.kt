@@ -18,7 +18,10 @@ sealed interface GazeTarget {
     data class HudControl(val index: Int) : GazeTarget
 
     /** Player HUD timeline scrubber; [fraction] is in [0f, 1f] across duration. */
+    /** Fraction is kept Float for source compatibility; reducers multiply in Double. */
     data class HudTimeline(val fraction: Float) : GazeTarget
+
+    enum class HudControlId { PREVIOUS, PLAY_PAUSE, NEXT, BACK, PROJECTION, SPEED, SCREEN_SIZE }
 
     data class DialogButton(val index: Int) : GazeTarget
 

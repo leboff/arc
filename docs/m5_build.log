@@ -1,0 +1,29 @@
+All of Milestone 5 is implemented and every test suite is green.
+
+## What was built
+
+**`app/src/main/java/com/daydreamvr/player/screens/widgets/`**
+
+| File | Contents |
+|---|---|
+| `WidgetGeometry.kt` | `PixRect` (pure rect value type) + `Bands` band-budget constants |
+| `SourceSidebarWidget.kt` | Header + vertical 3-row source switcher + divider + measured folder list; `visibleRows()` = exact fitting-row count |
+| `MediaGridWidget.kt` | Derived 3×2 grid, 6 cards/page, 16:9 posters, badges/duration/watched bar, **whole-card** hit region, absolute `GridCell(page*6+slot)` index |
+| `MediaInspectorWidget.kt` | Bottom-anchored `PLAY` / `RESUME` / `Projection` actions, top-down poster+title+metadata clipped where it would collide with the action block |
+| `SystemDockWidget.kt` | 6 equal cells tiling `[0,672)`, one `DockButton` hit region per cell |
+
+Each widget takes `(theme, metrics, measure)`, exposes a pure `measureLayout(model, bounds)`, a `draw(...)`, and `hitRegions(layout): List<HitRegion<GazeTarget>>`, mirroring `ListView`.
+
+**Deviation from the prompt (necessary):** the signature says `bounds: RectF`, but `android.graphics.RectF` is a no-op stub under `unitTests.isReturnDefaultValues = true` (verified: constructor does nothing, fields read `0f`), which would make every layout assertion vacuous. Widgets take/return `PixRect` and convert to `RectF` only inside `draw`, on-device — the same "plain floats in the pure path" approach `ListView` already uses.
+
+**`vrcore/.../Theme.kt`** — added `badgeVr` / `badge3d` / `badgeQuality` (plan §4).
+
+## Tests — `app/src/test/.../screens/widgets/` (19 new, all pass)
+
+`MediaGridLayoutTest` (6), `HitTargetSizeTest` (4), `SourceSidebarLayoutTest` (3), `MediaInspectorLayoutTest` (3), `SystemDockLayoutTest` (3).
+
+## Full-suite result (`./gradlew testDebugUnitTest` + `:upnp:test`, exit 0)
+
+- app: 124 ✓ · vrcore: 117 ✓ · playback: 18 ✓ · upnp: 34 ✓ — 0 failures, 0 errors
+
+Not wired into `BrowseScreen`/`AppScene` yet — that's M8. Memory updated.

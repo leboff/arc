@@ -8,9 +8,9 @@ import com.daydreamvr.vrcore.gl.Mesh
 import com.daydreamvr.vrcore.gl.Shader
 import com.daydreamvr.vrcore.gl.VideoTexture
 import com.daydreamvr.vrcore.render.shaders.VideoShaders
-import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.PI
 
 /**
  * Inside-out UV sphere for equirectangular 180 / 360 content (ARCHITECTURE.md
@@ -43,6 +43,9 @@ class SphereScreen(
         vSegments: Int = 32,
     ): FloatArray {
         require(hSegments >= 1 && vSegments >= 1)
+        if (mode.mapping == ProjectionMapping.EQUIDISTANT_FISHEYE) {
+            return buildFisheyeVertices(mode.fisheyeFovDegrees!!, hSegments, hSegments * 3)
+        }
         val lonSpan = if (mode == ProjectionMode.EQUIRECT_360) (2f * PI.toFloat())
             else domeFovDegrees * PI.toFloat() / 180f
 
@@ -76,6 +79,36 @@ class SphereScreen(
         return out
     }
 
+    /** Polar cap mesh for an equidistant fisheye lens. The center is a fan,
+     * avoiding the degenerate origin ring used by latitude/longitude meshes. */
+    fun buildFisheyeVertices(fovDegrees: Int, radialSegments: Int = 64, azimuthSegments: Int = 192): FloatArray {
+        require(fovDegrees in 1..359 && radialSegments >= 1 && azimuthSegments >= 3)
+        val max = Math.toRadians(fovDegrees / 2.0)
+        val out = ArrayList<Float>()
+        fun put(theta: Double, phi: Double) {
+            out += (radiusM * sin(theta) * cos(phi)).toFloat()
+            out += (radiusM * sin(theta) * sin(phi)).toFloat()
+            out += (-radiusM * cos(theta)).toFloat()
+            out += (0.5 + 0.5 * (theta / max) * cos(phi)).toFloat()
+            out += (0.5 + 0.5 * (theta / max) * sin(phi)).toFloat()
+        }
+        for (r in 0 until radialSegments) {
+            val t0 = r * max / radialSegments
+            val t1 = (r + 1) * max / radialSegments
+            for (a in 0 until azimuthSegments) {
+                val p0 = 2.0 * PI * a / azimuthSegments
+                val p1 = 2.0 * PI * (a + 1) / azimuthSegments
+                if (r == 0) {
+                    put(0.0, 0.0); put(t1, p1); put(t1, p0)
+                } else {
+                    put(t0, p0); put(t1, p1); put(t1, p0)
+                    put(t0, p0); put(t0, p1); put(t1, p1)
+                }
+            }
+        }
+        return out.toFloatArray()
+    }
+
     fun buildMesh(mode: ProjectionMode, hSegments: Int = 64, vSegments: Int = 32): Mesh {
         val verts = buildVertices(mode, hSegments, vSegments)
         return Mesh(verts, verts.size / FLOATS_PER_VERTEX, FLOATS_PER_VERTEX * Float.SIZE_BYTES)
@@ -84,6 +117,7 @@ class SphereScreen(
     // ---- GL draw path (not exercised by JVM tests) --------------------------
 
     private var shader: Shader? = null
+    private var fisheyeShader: Shader? = null
     private var mesh: Mesh? = null
     private var meshFovDegrees: Int? = null
     private var meshMode: ProjectionMode? = null
@@ -96,6 +130,7 @@ class SphereScreen(
 
     fun onGlCreate() {
         shader = Shader(VideoShaders.VERTEX, VideoShaders.FRAGMENT)
+        fisheyeShader = Shader(VideoShaders.FISHEYE_VERTEX, VideoShaders.FISHEYE_FRAGMENT)
     }
 
     fun draw(
@@ -105,7 +140,8 @@ class SphereScreen(
         videoTexture: VideoTexture,
         projection: ProjectionMode,
     ) {
-        val program = shader ?: return
+        val program = if (projection.mapping == ProjectionMapping.EQUIDISTANT_FISHEYE) fisheyeShader else shader
+        program ?: return
         if (mesh == null || meshMode != projection || meshFovDegrees != domeFovDegrees) {
             mesh?.release()
             mesh = buildMesh(projection)
@@ -127,6 +163,9 @@ class SphereScreen(
         GLES30.glUniformMatrix4fv(program.uniform("uMvp"), 1, false, mvp, 0)
         GLES30.glUniformMatrix4fv(program.uniform("uStMatrix"), 1, false, stMatrix, 0)
         GLES30.glUniform4fv(program.uniform("uUvRect"), 1, uvRect, 0)
+        if (projection.mapping == ProjectionMapping.EQUIDISTANT_FISHEYE) {
+            GLES30.glUniform1f(program.uniform("uThetaMax"), Math.toRadians(projection.fisheyeFovDegrees!! / 2.0).toFloat())
+        }
 
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, videoTexture.textureId)
@@ -152,9 +191,11 @@ class SphereScreen(
     fun onGlDestroy() {
         mesh?.release()
         shader?.release()
+        fisheyeShader?.release()
         mesh = null
         meshMode = null
         shader = null
+        fisheyeShader = null
     }
 
     companion object {

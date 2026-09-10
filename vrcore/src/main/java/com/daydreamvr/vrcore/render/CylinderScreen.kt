@@ -37,7 +37,7 @@ class CylinderScreen(
 
     /** Rebuilds the vertical extent from the media aspect, keeping [widthDegrees]. */
     fun setAspect(videoAspect: Float) {
-        if (videoAspect > 0f) aspect = videoAspect
+        if (videoAspect.isFinite() && videoAspect > 0f) aspect = videoAspect
     }
 
     /**

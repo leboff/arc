@@ -7,6 +7,7 @@ import com.daydreamvr.vrcore.ui.Space
 import com.daydreamvr.vrcore.ui.Theme
 import com.daydreamvr.vrcore.ui.Type
 import java.util.Locale
+import kotlin.math.roundToLong
 
 /**
  * The player HUD scrubber: elapsed / −remaining in tabular numerals, a track with
@@ -52,6 +53,12 @@ class Timeline(private val theme: Theme, private val metrics: PanelMetrics) {
     }
 
     companion object {
+        fun seekPosition(durationMs: Long, fraction: Double): Long? {
+            if (durationMs <= 0L || !fraction.isFinite()) return null
+            val f = fraction.coerceIn(0.0, 1.0)
+            return (durationMs.toDouble() * f).roundToLong().coerceIn(0L, durationMs)
+        }
+
         fun formatMs(ms: Long): String {
             val totalSec = ms / 1000
             val h = totalSec / 3600

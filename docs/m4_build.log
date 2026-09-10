@@ -1,0 +1,25 @@
+Milestone 4 is implemented and `./gradlew testDebugUnitTest` is green (105 `:app` tests, full `./gradlew test` + `:app:assembleDebug` also pass).
+
+## What landed
+
+**New core types** (`com.daydreamvr.player.state`)
+- `BrowseFocus.kt` — `BrowseFocus` sealed interface (Source/Sidebar/Grid/Inspector/Dock/Toolbar), `SortOrder` with `next()`, `SourcesState`.
+- `UiIntent.kt` — every intent from §10.2.
+- `GazeTarget` — added `SourceTab`, `SidebarRow`, `GridCell`, `BreadcrumbSegment`, `ToolbarChip`, `PageButton`, `InspectorAction`, `DockButton` + `Chip`/`Action`/`Dock` enums.
+- `AppState` — `sources`, `localMedia` (new `LocalMedia`), `projectionOverrides`, `thumbGeneration`.
+- `BrowseFrame` — `server` is now nullable; added `source`, `sort`, `focus`, `gridReturn`, `sidebarScrollTop` and the derived `sortedVideos` / `gridFocusIndex` / `gridPage` / `pageCount` / `focusedVideo` (`GRID_PAGE_SIZE = 6`, `GRID_COLS = 3`). Legacy `focusIndex`/`rows`/`containers`/`items` kept and kept roughly in sync so `BrowseScreen` still renders.
+
+**Events / Effects** — `Event.Ui`, `LocalMediaLoaded/Failed`, `LocalPermissionChanged`, `LocalMediaChanged`, `ThumbnailsArrived`; `Effect.LoadLocalMedia`, `BrowseNode`, `PlayNode`, `PersistProjectionOverride`, `PrefetchThumbnails`.
+
+**Reducer** — `reduceUi` covers all `UiIntent`s (`SelectSort` keeps the focused node fixed by id, `PageNext/Prev` moves grid focus a page and separately tops up the CDS fetch, `OverrideProjection` cycles FLAT→…→Auto, `PlayVideo`→`Effect.PlayNode`, `DockAction` per §5.4). `intentForFocus(frame)`, column navigation (`nextFocus`/`gridFocusMove`/`applyFocus` — Sidebar↔Grid↔Inspector, bottom row↓→Dock, Dock↑→last cell), gaze writes the new targets into `frame.focus`.
+
+**EffectRunner** — handles `BrowseNode` (reuses `Event.BrowseLoaded`), `PlayNode` (branches on `PlaybackRef`, Local synthesises a one-element `Resource` list), `LoadLocalMedia`.
+
+**Tests** — new: `SortReducerTest`, `GridPageTest`, `ColumnNavTest`, `LocalBrowseTest`, `ProjectionOverrideTest`. Rewritten for the column model: `NavigationTest` (now asserts `Effect.PlayNode`), `BrowseReducerTest`. `EscapeHatchTest` walks every `BrowseFocus` + every dock button.
+
+## Deviations / deferred (not blocking green)
+- **Strangler S5/S6 not done**: `Effect.Play` and `containers`/`items` still exist — the server-list entry path and legacy resume-prompt flow still use them, and `BrowseScreen` still reads the flat list. Removing them requires the M5 widgets. `PlayNode` and `Play` coexist as §10.7 intends.
+- `EffectRunner.LoadLocalMedia` needs `localMediaLoader` bridged to the real `LocalMediaRepository` (a `var` hook is in place); `PersistProjectionOverride` is a no-op (override lives in `AppState`). Both are M8 wiring.
+- `intentForFocus` returns `null` for `BrowseFocus.Source` (needs the source list, not just the frame); `SelectSource` is still fully exercised via `Event.Ui`.
+
+Nothing was committed — let me know if you want that.

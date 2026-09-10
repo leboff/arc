@@ -35,6 +35,9 @@ class MediaListWidget(
         val items: List<MediaGridWidget.Model.Card>,
         val page: Int = 0,
         val pageCount: Int = 1,
+        /** Absolute top index for continuous list mode. */
+        val scrollTop: Int = page * PAGE_SIZE,
+        val visibleRows: Int = PAGE_SIZE,
     )
 
     data class RowLayout(
@@ -64,22 +67,23 @@ class MediaListWidget(
         val listTop = bounds.top + metrics.px(Bands.HEADER_DEG) + metrics.px(Bands.COMPACT_ROW_DEG)
         val listBottom = bounds.bottom - metrics.px(Bands.COMPACT_ROW_DEG) - metrics.px(Bands.BOTTOM_PAD_DEG)
         val listBand = PixRect(bounds.left, listTop, bounds.right, listBottom)
-        val pitch = (listBottom - listTop) / PAGE_SIZE
+        val rowCount = model.visibleRows.coerceAtLeast(1)
+        val pitch = (listBottom - listTop) / rowCount
 
         val rowH = pitch - 2 * padV
 
-        val titleSize = metrics.px(Type.rowSubtitle.degrees)
-        val titleAsc = -measure.ascentPx(titleSize, bold = true)
+        val titleSize = metrics.px(Type.compactListTitle.degrees)
+        val titleAsc = -measure.ascentPx(titleSize, bold = false)
         val titleLineH = titleSize * Type.SUBTITLE_LINE_HEIGHT
 
-        val metaSize = metrics.px(Type.meta.degrees)
+        val metaSize = metrics.px(Type.compactListMeta.degrees)
         val metaAsc = -measure.ascentPx(metaSize, bold = false)
 
-        val rows = ArrayList<RowLayout>(PAGE_SIZE)
-        for (slot in 0 until PAGE_SIZE) {
+        val rows = ArrayList<RowLayout>(rowCount)
+        for (slot in 0 until rowCount) {
             val top = listTop + slot * pitch + padV
             val box = PixRect(bounds.left + padH, top, bounds.right - padH, top + rowH)
-            val absoluteIndex = model.page * PAGE_SIZE + slot
+            val absoluteIndex = model.scrollTop + slot
 
             val iconSize = metrics.px(2.4f)
             val iconLeft = box.left + metrics.px(Space.M)
@@ -121,10 +125,10 @@ class MediaListWidget(
     ) {
         val focusedIndex = (focus as? BrowseFocus.Grid)?.index
         val hoverIndex = (hover as? GazeTarget.GridCell)?.index
-        val titlePaint = theme.text(Type.rowSubtitle, metrics)
-        val metaPaint = theme.text(Type.meta, metrics)
-        val durationPaint = theme.text(Type.numeral, metrics, theme.textPrimary).apply { textAlign = Paint.Align.RIGHT }
-        val iconPaint = theme.text(Type.meta, metrics)
+        val titlePaint = theme.text(Type.compactListTitle, metrics)
+        val metaPaint = theme.text(Type.compactListMeta, metrics)
+        val durationPaint = theme.text(Type.compactListDuration, metrics, theme.textPrimary).apply { textAlign = Paint.Align.RIGHT }
+        val iconPaint = theme.text(Type.compactListMeta, metrics)
 
         for (row in layout.rows) {
             if (!row.populated) continue
@@ -182,12 +186,12 @@ class MediaListWidget(
     }
 
     private fun badgeWidth(text: String): Float =
-        measure.width(text, metrics.px(Type.chip.degrees), bold = true) + metrics.px(Space.S) * 2
+        measure.width(text, metrics.px(Type.compactListBadge.degrees), bold = false) + metrics.px(Space.S) * 2
 
     private fun drawBadge(canvas: Canvas, text: String, x: Float, y: Float, stroke: Int) {
-        val paint = theme.text(Type.chip, metrics).apply { textAlign = Paint.Align.LEFT }
+        val paint = theme.text(Type.compactListBadge, metrics).apply { textAlign = Paint.Align.LEFT }
         val w = badgeWidth(text)
-        val h = metrics.px(Type.chip.degrees) + metrics.px(Space.XS) * 2
+        val h = metrics.px(Type.compactListBadge.degrees) + metrics.px(Space.XS) * 2
         val rect = RectF(x, y, x + w, y + h)
         Surfaces.chip(canvas, rect, metrics, theme, accented = false)
         canvas.drawRoundRect(rect, metrics.px(Radius.CHIP), metrics.px(Radius.CHIP), theme.strokePaint(stroke, 1.5f))

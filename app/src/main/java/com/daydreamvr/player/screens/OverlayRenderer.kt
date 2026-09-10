@@ -157,7 +157,7 @@ class OverlayRenderer(panel: PanelSurface, theme: Theme) :
             )
         }
         val visibleRows = list.visibleRowCount(bodyHeight, twoLine = false)
-        val scrollTop = scrollWindowFor(overlay.focusIndex, options.size, visibleRows)
+        val scrollTop = overlay.scrollTop.coerceIn(0, (options.size - visibleRows).coerceAtLeast(0))
         val layout = list.measureLayout(entries, contentTop, bodyHeight, bodyLeft, bodyWidth, scrollTop)
         val hover = (gaze as? GazeTarget.ProjectionOption)?.index
         list.draw(canvas, entries, layout, overlay.focusIndex, hover, scrollTop)
@@ -167,19 +167,12 @@ class OverlayRenderer(panel: PanelSurface, theme: Theme) :
         }
     }
 
-    /** Keeps [focus] inside a [window]-row scroll, mirroring [com.daydreamvr.player.state.AppStateMachine.clampScroll]. */
-    private fun scrollWindowFor(focus: Int, total: Int, window: Int): Int {
-        if (total <= window) return 0
-        val st = focus.coerceIn(0, maxOf(0, total - window))
-        return if (focus >= st + window) focus - window + 1 else st
-    }
-
     private fun overlayKey(overlay: Overlay?): Any? = when (overlay) {
         null -> "none"
         is Overlay.Keyboard -> listOf("kb", overlay.purpose, overlay.kb)
         is Overlay.Error -> listOf("err", overlay.title, overlay.message, overlay.canRetry)
         is Overlay.Confirm -> listOf("confirm", overlay.title, overlay.options, overlay.focusIndex, overlay.tag)
-        is Overlay.ProjectionChooser -> listOf("projection", overlay.current, overlay.returnTo, overlay.targetKey, overlay.focusIndex)
+        is Overlay.ProjectionChooser -> listOf("projection", overlay.current, overlay.returnTo, overlay.targetKey, overlay.focusIndex, overlay.scrollTop)
         is Overlay.Toast -> listOf("toast", overlay.message)
     }
 }

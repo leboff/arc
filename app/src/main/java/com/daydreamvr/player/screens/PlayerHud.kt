@@ -27,9 +27,22 @@ import java.util.Locale
 class PlayerHud(panel: PanelSurface, theme: Theme) :
     ScreenPanel(panel, theme, panelWidthM = 2.40f, panelHeightM = 0.62f) {
 
-    override val verticalOffsetM: Float = -1.15f
+    override val verticalOffsetM: Float = -0.85f
 
     private val timeline = Timeline(theme, metrics)
+    private var timelineLeft = 0f
+    private var timelineWidth = 0f
+    private var timelineTop = 0f
+    private var timelineHeight = 0f
+
+    override fun hitTest(xPx: Float, yPx: Float): GazeTarget? {
+        if (xPx >= timelineLeft && xPx <= timelineLeft + timelineWidth &&
+            yPx >= timelineTop && yPx <= timelineTop + timelineHeight) {
+            val fraction = ((xPx - timelineLeft) / timelineWidth).coerceIn(0f, 1f)
+            return GazeTarget.HudTimeline(fraction)
+        }
+        return super.hitTest(xPx, yPx)
+    }
 
     fun render(state: AppState) {
         if (state.screen != VrScreen.PLAYER) return
@@ -84,14 +97,14 @@ class PlayerHud(panel: PanelSurface, theme: Theme) :
             val barW = metrics.widthPx - pad * 2
             val barHitH = metrics.px(3.0f)
             val barHitTop = (barTop - metrics.px(0.8f)).coerceAtLeast(0f)
-            val steps = 40
-            val stepW = barW / steps
-            for (step in 0 until steps) {
-                val segLeft = pad + step * stepW
-                val segRight = if (step == steps - 1) pad + barW else pad + (step + 1) * stepW
-                val frac = (step + 0.5f) / steps
-                regions += HitRegion(segLeft, barHitTop, segRight, barHitTop + barHitH, GazeTarget.HudTimeline(frac))
-            }
+            timelineLeft = pad
+            timelineWidth = barW
+            timelineTop = barHitTop
+            timelineHeight = barHitH
+            // One continuous target. The reducer receives the exact pointer fraction;
+            // there is deliberately no timeline binning.
+            regions += HitRegion(pad - metrics.px(0.35f), barHitTop, pad + barW + metrics.px(0.35f), barHitTop + barHitH,
+                GazeTarget.HudTimeline(0f))
 
             drawControls(canvas, state, barTop + metrics.px(3.0f), regions)
         }
@@ -105,22 +118,31 @@ class PlayerHud(panel: PanelSurface, theme: Theme) :
     ) {
         val pad = contentLeft()
         val gap = metrics.px(Space.S)
-        val slotW = (metrics.widthPx - pad * 2 - gap * (HudState.CONTROLS.size - 1)) / HudState.CONTROLS.size
-        val chipH = metrics.px(2.2f)
+        val primary = listOf("Previous", "Play/Pause", "Next")
+        val utility = listOf("Back", "Projection", "Speed", "Screen size")
+        val primaryW = (metrics.widthPx - pad * 2 - gap * 2) / 3f
+        val utilityW = (metrics.widthPx - pad * 2 - gap * 3) / 4f
+        val chipH = metrics.px(3.0f)
         val labelPaint = theme.text(Type.chip, metrics).apply { textAlign = Paint.Align.CENTER }
         val valuePaint = theme.text(Type.meta, metrics).apply { textAlign = Paint.Align.CENTER }
 
-        HudState.CONTROLS.forEachIndexed { i, label ->
-            val x = pad + i * (slotW + gap)
-            val rect = RectF(x, top, x + slotW, top + chipH)
+        fun drawRow(labels: List<String>, y: Float, slotW: Float, startIndex: Int) {
+        labels.forEachIndexed { offset, label ->
+            val i = startIndex + offset
+            val x = pad + offset * (slotW + gap)
+            val rect = RectF(x, y, x + slotW, y + chipH)
             Surfaces.chip(canvas, rect, metrics, theme, accented = false)
             val focused = i == state.hud.focusIndex
             val hovered = (state.gaze as? GazeTarget.HudControl)?.index == i
             if (focused) Surfaces.focus(canvas, rect, metrics, theme) else if (hovered) Surfaces.hover(canvas, rect, metrics, theme)
-            canvas.drawText(label, rect.centerX(), rect.centerY(), labelPaint)
+            val visible = if (label == "Play/Pause") if (state.playback.isPlaying) "Pause" else "Play" else label
+            canvas.drawText(visible, rect.centerX(), rect.centerY(), labelPaint)
             valueFor(label, state)?.let { canvas.drawText(it, rect.centerX(), rect.bottom + metrics.px(Type.meta.degrees), valuePaint) }
             regions += HitRegion(rect.left, rect.top, rect.right, rect.bottom, GazeTarget.HudControl(i))
         }
+        }
+        drawRow(primary, top, primaryW, 0)
+        drawRow(utility, top + chipH + metrics.px(Space.S), utilityW, 3)
         hitMap = HitMap(regions)
     }
 
