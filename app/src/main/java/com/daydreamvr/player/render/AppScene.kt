@@ -78,7 +78,11 @@ class AppScene(
     private val groundLine = rgb(theme.accent)
     private val groundGlow = rgb(theme.accent)
 
-    private val stabilizer = GazeStabilizer<GazeTarget>()
+    private val stabilizer = GazeStabilizer<GazeTarget>(
+        sameControl = { a, b ->
+            if (a is GazeTarget.HudTimeline && b is GazeTarget.HudTimeline) true else a == b
+        },
+    )
     private var lastDispatched: GazeTarget? = null
     private var listWindowReported = false
 

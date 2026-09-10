@@ -30,15 +30,17 @@ class PlayerHud(panel: PanelSurface, theme: Theme) :
     override val verticalOffsetM: Float = -0.85f
 
     private val timeline = Timeline(theme, metrics)
-    private var timelineLeft = 0f
-    private var timelineWidth = 0f
-    private var timelineTop = 0f
-    private var timelineHeight = 0f
 
     override fun hitTest(xPx: Float, yPx: Float): GazeTarget? {
-        if (xPx >= timelineLeft && xPx <= timelineLeft + timelineWidth &&
-            yPx >= timelineTop && yPx <= timelineTop + timelineHeight) {
-            val fraction = ((xPx - timelineLeft) / timelineWidth).coerceIn(0f, 1f)
+        val pad = contentLeft()
+        val titleSize = metrics.px(Type.rowTitle.degrees)
+        val barTop = pad + titleSize * 1.4f
+        val barW = metrics.widthPx - pad * 2
+        val barHitH = metrics.px(3.0f)
+        val barHitTop = (barTop - metrics.px(0.8f)).coerceAtLeast(0f)
+        if (xPx in (pad - metrics.px(0.35f))..(pad + barW + metrics.px(0.35f)) &&
+            yPx in barHitTop..(barHitTop + barHitH)) {
+            val fraction = ((xPx - pad) / barW).coerceIn(0f, 1f)
             return GazeTarget.HudTimeline(fraction)
         }
         return super.hitTest(xPx, yPx)
@@ -97,10 +99,6 @@ class PlayerHud(panel: PanelSurface, theme: Theme) :
             val barW = metrics.widthPx - pad * 2
             val barHitH = metrics.px(3.0f)
             val barHitTop = (barTop - metrics.px(0.8f)).coerceAtLeast(0f)
-            timelineLeft = pad
-            timelineWidth = barW
-            timelineTop = barHitTop
-            timelineHeight = barHitH
             // One continuous target. The reducer receives the exact pointer fraction;
             // there is deliberately no timeline binning.
             regions += HitRegion(pad - metrics.px(0.35f), barHitTop, pad + barW + metrics.px(0.35f), barHitTop + barHitH,

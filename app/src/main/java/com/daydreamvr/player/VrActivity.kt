@@ -7,13 +7,11 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.Choreographer
-import android.view.Gravity
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.WindowManager
 import android.widget.FrameLayout
-import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -74,9 +72,6 @@ class VrActivity : ComponentActivity() {
     /** Head yaw (radians) latched by the GL-thread pose provider for panel follow. */
     @Volatile
     private var headYawRad: Float = 0f
-
-    private lateinit var leftEyeText: TextView
-    private lateinit var rightEyeText: TextView
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -203,13 +198,8 @@ class VrActivity : ComponentActivity() {
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
 
-        leftEyeText = overlayTextView()
-        rightEyeText = overlayTextView()
-
         val root = FrameLayout(this).apply {
             addView(glSurfaceView)
-            addView(leftEyeText, eyeLayoutParams(Gravity.START))
-            addView(rightEyeText, eyeLayoutParams(Gravity.END))
         }
         setContentView(root)
 
@@ -229,12 +219,6 @@ class VrActivity : ComponentActivity() {
     }
 
     private fun wireFlows() {
-        lifecycleScope.launch {
-            overlay.text.collect { text ->
-                leftEyeText.text = text
-                rightEyeText.text = text
-            }
-        }
         lifecycleScope.launch {
             // Drop the initial empty emission; report real connect/disconnect edges.
             decoder.connectedGamepads.drop(1).collect { pads ->
@@ -394,22 +378,6 @@ class VrActivity : ComponentActivity() {
         player.release()
         renderer.onGlDestroy()
         super.onDestroy()
-    }
-
-    private fun overlayTextView(): TextView = TextView(this).apply {
-        setText(R.string.debug_overlay_waiting)
-        setTextColor(0xFFE8E8EA.toInt())
-        setBackgroundColor(0x66000000)
-        textSize = 11f
-        setPadding(24, 24, 24, 24)
-        includeFontPadding = false
-    }
-
-    private fun eyeLayoutParams(horizontalGravity: Int) = FrameLayout.LayoutParams(
-        FrameLayout.LayoutParams.WRAP_CONTENT,
-        FrameLayout.LayoutParams.WRAP_CONTENT,
-    ).apply {
-        gravity = horizontalGravity or Gravity.CENTER_VERTICAL
     }
 
     private companion object {

@@ -42,4 +42,19 @@ class GazeStabilizerTest {
         // After reset, "b" must earn its place again rather than snapping instantly.
         assertThat(s.update("b", dt)).isNull()
     }
+
+    @Test
+    fun continuousControlStabilizesAndKeepsItsLatestValue() {
+        data class Timeline(val fraction: Float)
+        val s = GazeStabilizer<Timeline>(holdSeconds = 0.06f) { a, b ->
+            a != null && b != null
+        }
+
+        assertThat(s.update(Timeline(0.50f), dt)).isNull()
+        assertThat(s.update(Timeline(0.501f), dt)).isNull()
+        assertThat(s.update(Timeline(0.502f), dt)).isNull()
+        assertThat(s.update(Timeline(0.503f), dt)).isNull()
+        assertThat(s.update(Timeline(0.504f), dt)).isEqualTo(Timeline(0.504f))
+        assertThat(s.update(Timeline(0.51f), dt)).isEqualTo(Timeline(0.51f))
+    }
 }
