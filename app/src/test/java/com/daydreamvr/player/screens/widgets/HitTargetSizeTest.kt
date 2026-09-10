@@ -63,6 +63,23 @@ class HitTargetSizeTest {
     }
 
     @Test
+    fun mediaListRegions() {
+        val w = MediaListWidget(Theme.DEFAULT, browse, measure)
+        val model = MediaListWidget.Model(
+            List(6) {
+                MediaGridWidget.Model.Card(
+                    title = "Clip $it",
+                    meta = "3840×2160 · 4.2 GB",
+                    durationLabel = "12:30",
+                    projection = ProjectionMode.EQUIRECT_180,
+                    qualityLabel = "4K",
+                )
+            },
+        )
+        assertAllBigEnough(w.hitRegions(w.measureLayout(model, PixRect(418f, 0f, 1118f, 800f))), browse)
+    }
+
+    @Test
     fun mediaInspectorRegions() {
         val w = MediaInspectorWidget(Theme.DEFAULT, browse, measure)
         val model = MediaInspectorWidget.Model(
