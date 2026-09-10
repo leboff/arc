@@ -182,4 +182,45 @@ class GamepadDecoderTest {
         decoder.onDeviceRemoved(42)
         assertThat(decoder.connectedGamepads.value).isEmpty()
     }
+
+    @Test
+    fun rightStickY_scrollsPagesOutsidePlayer_andZoomsInPlayer() {
+        decoder.registerDevice(GamepadCapabilities("pad-scroll", 7, "pad-scroll", 0,
+            listOf(
+                MotionRangeInfo(RawMotion.AXIS_Z, -1f, 1f, 0.2f),
+                MotionRangeInfo(RawMotion.AXIS_RZ, -1f, 1f, 0.2f),
+            )))
+
+        // 1. Outside player mode: right stick Y down emits PageDown
+        player = false
+        decoder.tick()
+        emitted.clear()
+        decoder.handleMotion(motion(RawMotion.AXIS_RZ to 0.8f))
+        assertThat(emitted).containsExactly(InputAction.PageDown)
+
+        // After repeat delay, ticks emit auto-repeat PageDown
+        advanceMs(401)
+        decoder.tick()
+        assertThat(emitted).containsExactly(InputAction.PageDown, InputAction.PageDown)
+
+        // Release right stick
+        emitted.clear()
+        decoder.handleMotion(motion(RawMotion.AXIS_RZ to 0f))
+        assertThat(emitted).isEmpty()
+
+        // Right stick Y up emits PageUp
+        decoder.handleMotion(motion(RawMotion.AXIS_RZ to -0.8f))
+        assertThat(emitted).containsExactly(InputAction.PageUp)
+
+        // Release right stick
+        decoder.handleMotion(motion(RawMotion.AXIS_RZ to 0f))
+        emitted.clear()
+
+        // 2. In player mode: right stick Y emits Zoom instead of PageUp/PageDown
+        player = true
+        decoder.tick()
+        emitted.clear()
+        decoder.handleMotion(motion(RawMotion.AXIS_RZ to 0.8f))
+        assertThat(emitted).containsExactly(InputAction.Zoom(-0.8f))
+    }
 }

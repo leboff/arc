@@ -34,7 +34,7 @@ object AngularMetrics {
     const val COMFORT_V_DOWN_DEGREES = 30f
 
     /** Minimum legible text height through a passive viewer (ARCHITECTURE.md §11.3). */
-    const val MIN_TEXT_DEGREES = 1.5f
+    const val MIN_TEXT_DEGREES = 1.0f
 
     /**
      * Smallest reliable gaze target given head-tracking jitter plus the 60 ms

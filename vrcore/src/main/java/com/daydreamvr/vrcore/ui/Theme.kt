@@ -160,13 +160,13 @@ object Type {
 
     enum class Role { PRIMARY, SECONDARY, TERTIARY, ACCENT }
 
-    val screenTitle = Token(2.30f, medium = true)
-    val sectionLabel = Token(1.50f, medium = true, letterSpacing = 0.10f, colorRole = Role.TERTIARY)
-    val rowTitle = Token(1.85f, medium = true)
-    val rowSubtitle = Token(1.55f, medium = false, colorRole = Role.SECONDARY)
-    val meta = Token(1.55f, medium = false, colorRole = Role.TERTIARY)
-    val chip = Token(1.50f, medium = true, colorRole = Role.ACCENT)
-    val numeral = Token(1.60f, medium = true, tabularFigures = true)
+    val screenTitle = Token(1.70f, medium = true)
+    val sectionLabel = Token(1.10f, medium = true, letterSpacing = 0.08f, colorRole = Role.TERTIARY)
+    val rowTitle = Token(1.35f, medium = true)
+    val rowSubtitle = Token(1.15f, medium = false, colorRole = Role.SECONDARY)
+    val meta = Token(1.10f, medium = false, colorRole = Role.TERTIARY)
+    val chip = Token(1.10f, medium = true, colorRole = Role.ACCENT)
+    val numeral = Token(1.20f, medium = true, tabularFigures = true)
 
     val ALL = listOf(screenTitle, sectionLabel, rowTitle, rowSubtitle, meta, chip, numeral)
 

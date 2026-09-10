@@ -115,6 +115,10 @@ class GamepadDecoder(
     private var navStartNanos = 0L
     private var nextRepeatNanos = 0L
 
+    private var rightStickScrollAction: InputAction? = null
+    private var scrollStartNanos = 0L
+    private var nextScrollRepeatNanos = 0L
+
     private var lastYawRate = 0f
     private var wasPlayer = false
 
@@ -128,6 +132,7 @@ class GamepadDecoder(
         if (player != wasPlayer) {
             wasPlayer = player
             motionNavDir = null
+            rightStickScrollAction = null
             updateNav(clock())
             stopYaw()
         }
@@ -254,7 +259,7 @@ class GamepadDecoder(
         }
         updateMotionNav(event, map, now)
         updateScrub(event, map)
-        emitStickAdjustments(event, map)
+        emitStickAdjustments(event, map, now)
         return true
     }
 
@@ -309,14 +314,35 @@ class GamepadDecoder(
     private fun triggerValue(raw: Float, zeroToOne: Boolean): Float =
         if (zeroToOne) raw.coerceIn(0f, 1f) else ((raw + 1f) / 2f).coerceIn(0f, 1f)
 
-    private fun emitStickAdjustments(event: RawMotion, map: AxisMap) {
+    private fun emitStickAdjustments(event: RawMotion, map: AxisMap, now: Long) {
         val rsx = event.axis(map.rightStickX)
         val rsy = event.axis(map.rightStickY)
-        if (abs(rsy) >= map.deadzone(map.rightStickY, bindings.deadzoneFallback)) {
-            emit(InputAction.Zoom(-rsy))
+        if (playerInputEnabled()) {
+            rightStickScrollAction = null
+            if (abs(rsy) >= map.deadzone(map.rightStickY, bindings.deadzoneFallback)) {
+                emit(InputAction.Zoom(-rsy))
+            }
+            if (abs(rsx) >= map.deadzone(map.rightStickX, bindings.deadzoneFallback)) {
+                emit(InputAction.ScreenDistance(rsx))
+            }
+        } else {
+            updateRightStickScroll(rsy, map, now)
         }
-        if (abs(rsx) >= map.deadzone(map.rightStickX, bindings.deadzoneFallback)) {
-            emit(InputAction.ScreenDistance(rsx))
+    }
+
+    private fun updateRightStickScroll(rsy: Float, map: AxisMap, now: Long) {
+        val deadY = map.deadzone(map.rightStickY, bindings.deadzoneFallback)
+        val action = when {
+            rsy >= deadY -> InputAction.PageDown
+            rsy <= -deadY -> InputAction.PageUp
+            else -> null
+        }
+        if (action == rightStickScrollAction) return
+        rightStickScrollAction = action
+        if (action != null) {
+            emit(action)
+            scrollStartNanos = now
+            nextScrollRepeatNanos = now + bindings.repeatDelayMs * NANOS_PER_MS
         }
     }
 
@@ -345,6 +371,18 @@ class GamepadDecoder(
                 held.longFired = true
                 emit(held.longAction)
             }
+        }
+
+        val scroll = rightStickScrollAction
+        if (scroll != null && now >= nextScrollRepeatNanos) {
+            emit(scroll)
+            val heldFor = now - scrollStartNanos
+            val intervalMs = if (heldFor >= bindings.repeatAccelAfterMs * NANOS_PER_MS) {
+                bindings.repeatAccelIntervalMs
+            } else {
+                bindings.repeatIntervalMs
+            }
+            nextScrollRepeatNanos = now + intervalMs * NANOS_PER_MS
         }
 
         val dir = repeatDir ?: return
