@@ -13,6 +13,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
+import com.daydreamvr.player.data.OpticsSettingsResolver
 import com.daydreamvr.player.media.local.MediaPermission
 import com.daydreamvr.vrcore.profile.DeviceProfiles
 import kotlinx.coroutines.launch
@@ -122,19 +123,11 @@ class SetupActivity : ComponentActivity() {
             setOnClickListener {
                 lifecycleScope.launch {
                     val current = container.settingsStore.current()
-                    val all = DeviceProfiles.ALL
-                    val nextIdx = (all.indexOfFirst { it.id == current.deviceProfileId } + 1) % all.size
-                    val nextProfile = all[nextIdx]
-                    val updated = current.copy(
-                        deviceProfileId = nextProfile.id,
-                        screenToLensMm = nextProfile.screenToLensDistanceM * 1000f,
-                        lensK1 = nextProfile.distortionK[0],
-                        lensK2 = nextProfile.distortionK[1],
-                    )
+                    val updated = OpticsSettingsResolver.cycleProfile(current, 1)
                     container.settingsStore.save(updated)
-                    container.deviceProfile = nextProfile
-                    text = "Viewer Profile: ${nextProfile.displayName}"
-                    Toast.makeText(this@SetupActivity, "Set profile to ${nextProfile.displayName}", Toast.LENGTH_SHORT).show()
+                    container.deviceProfile = OpticsSettingsResolver.resolveDeviceProfile(updated)
+                    text = "Viewer Profile: ${container.deviceProfile.displayName}"
+                    Toast.makeText(this@SetupActivity, "Set profile to ${container.deviceProfile.displayName}", Toast.LENGTH_SHORT).show()
                 }
             }
         }

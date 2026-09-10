@@ -1,14 +1,10 @@
 package com.daydreamvr.vrcore.distortion.shaders
 
 /**
- * GLSL ES 3.00 sources for the distortion resolve pass (ARCHITECTURE.md §6.6).
+ * GLSL ES 3.00 sources for the distortion resolve pass (ARCHITECTURE.md §6.6 / DISTORTION_REMEDIATION_PLAN §2.4).
  *
- * The mesh vertex carries the clip-space position plus three sets of texture
- * coordinates ([com.daydreamvr.vrcore.distortion.DistortionMesh]). The fragment
- * shader samples the resolved eye colour texture once per channel when
- * `uChromatic` is set (chromatic aberration correction), else once; samples that
- * fall outside `[0, 1]` read as black so the unused corners of the eye texture do
- * not smear.
+ * Uses highp precision for UV varyings and fragment arithmetic.
+ * Masking explicitly evaluates against unclamped UVs so samples outside [0, 1]² resolve to black.
  */
 object DistortionShaders {
 
@@ -18,9 +14,9 @@ layout(location = 1) in vec2 aUvR;
 layout(location = 2) in vec2 aUvG;
 layout(location = 3) in vec2 aUvB;
 
-out vec2 vUvR;
-out vec2 vUvG;
-out vec2 vUvB;
+out highp vec2 vUvR;
+out highp vec2 vUvG;
+out highp vec2 vUvB;
 
 void main() {
     vUvR = aUvR;
@@ -31,14 +27,14 @@ void main() {
 """
 
     const val FRAGMENT = """#version 300 es
-precision mediump float;
+precision highp float;
 
 uniform sampler2D uTexture;
 uniform bool uChromatic;
 
-in vec2 vUvR;
-in vec2 vUvG;
-in vec2 vUvB;
+in highp vec2 vUvR;
+in highp vec2 vUvG;
+in highp vec2 vUvB;
 
 out vec4 fragColor;
 

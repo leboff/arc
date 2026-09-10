@@ -1,34 +1,31 @@
 package com.daydreamvr.vrcore.render
 
-import com.daydreamvr.vrcore.profile.DeviceProfile
-import kotlin.math.tan
 import com.daydreamvr.vrcore.optics.DisplayGeometry
 import com.daydreamvr.vrcore.optics.MaxFov
 import com.daydreamvr.vrcore.optics.ObserverGeometry
 import com.daydreamvr.vrcore.optics.OpticsGeometry
+import com.daydreamvr.vrcore.optics.PixelInsets
 import com.daydreamvr.vrcore.optics.RadialCoefficients
-import com.daydreamvr.vrcore.optics.ViewerOptics
-import com.daydreamvr.vrcore.optics.VerticalAlignment
 import com.daydreamvr.vrcore.optics.TangentBounds
+import com.daydreamvr.vrcore.optics.VerticalAlignment
+import com.daydreamvr.vrcore.optics.ViewerOptics
+import com.daydreamvr.vrcore.profile.DeviceProfile
+import kotlin.math.atan
+import kotlin.math.tan
 
 /**
- * Pure, JVM-testable stereo geometry — no GL, no allocation on the callers'
- * behalf beyond the returned pair. See ARCHITECTURE.md §6.2–§6.4.
+ * Pure, JVM-testable stereo geometry (ARCHITECTURE.md §6.2–§6.4 / DISTORTION_REMEDIATION_PLAN §2).
  *
- * Matrix conventions: column-major `FloatArray(16)`, right-handed, `-Z` forward
- * (ARCHITECTURE.md §5). The math here deliberately does **not** call
- * `android.opengl.Matrix` so it runs off-device.
+ * Matrix conventions: column-major `FloatArray(16)`, right-handed, `-Z` forward.
  */
 object StereoLayout {
 
     /**
-     * Split [surfaceWidthPx] × [surfaceHeightPx] into two equal eye viewports
-     * separated by `profile.dividerPx` of untouched black gutter, and compute the
-     * asymmetric per-eye FOV from the physical display size and the viewer optics.
+     * Splits [surfaceWidthPx] × [surfaceHeightPx] into two eye viewports separated by
+     * `profile.dividerPx` and evaluates exact physical tangent bounds and lens centers.
      *
-     * [cutoutInsetPx] shrinks **both** viewports by the same number of columns on
-     * their outer edges, so a display cutout can be letterboxed around without
-     * disturbing the optical centres (ARCHITECTURE.md §18).
+     * When [distortionEnabled] is false, evaluates identity radial coefficients `(0, 0)`
+     * so direct rendering and direct projection match unwarped physical bounds (§2.3).
      */
     fun layout(
         surfaceWidthPx: Int,
@@ -38,35 +35,73 @@ object StereoLayout {
         profile: DeviceProfile,
         ipdM: Float,
         cutoutInsetPx: Int = 0,
+        distortionEnabled: Boolean = true,
     ): Pair<EyeParams, EyeParams> {
-        val optics = OpticsGeometry.compute(
-            DisplayGeometry(displayWidthM.toDouble(), displayHeightM.toDouble(), surfaceWidthPx, surfaceHeightPx,
-                usableInsets = com.daydreamvr.vrcore.optics.PixelInsets(left = cutoutInsetPx, right = cutoutInsetPx)),
-            ViewerOptics(profile.id, lensSeparationM = profile.interLensDistanceM.toDouble(),
-                screenToLensM = profile.screenToLensDistanceM.toDouble(), coefficients = RadialCoefficients(profile.distortionK[0].toDouble(), profile.distortionK[1].toDouble()),
-                verticalAlignment = VerticalAlignment.CENTER, maxFov = MaxFov(profile.maxFovDegrees.outer.toDouble(), profile.maxFovDegrees.inner.toDouble(), profile.maxFovDegrees.up.toDouble(), profile.maxFovDegrees.down.toDouble()), dividerPx = profile.dividerPx),
-            ObserverGeometry(ipdM.toDouble()),
+        val coeffs = if (distortionEnabled) {
+            RadialCoefficients(profile.distortionK[0].toDouble(), profile.distortionK[1].toDouble())
+        } else {
+            RadialCoefficients(0.0, 0.0)
+        }
+
+        val display = DisplayGeometry(
+            panelWidthM = displayWidthM.toDouble(),
+            panelHeightM = displayHeightM.toDouble(),
+            surfaceWidthPx = surfaceWidthPx,
+            surfaceHeightPx = surfaceHeightPx,
+            usableInsets = PixelInsets(left = cutoutInsetPx, right = cutoutInsetPx),
         )
+
+        val viewer = ViewerOptics(
+            profileId = profile.id,
+            lensSeparationM = profile.interLensDistanceM.toDouble(),
+            screenToLensM = profile.screenToLensDistanceM.toDouble(),
+            coefficients = coeffs,
+            verticalAlignment = VerticalAlignment.CENTER,
+            maxFov = MaxFov(
+                outer = profile.maxFovDegrees.outer.toDouble(),
+                inner = profile.maxFovDegrees.inner.toDouble(),
+                up = profile.maxFovDegrees.up.toDouble(),
+                down = profile.maxFovDegrees.down.toDouble(),
+            ),
+            dividerPx = profile.dividerPx,
+        )
+
+        val observer = ObserverGeometry(ipdM.toDouble())
+        val optics = OpticsGeometry.compute(display, viewer, observer)
+
         fun fov(bounds: TangentBounds) = FovAngles(
-            Math.toDegrees(kotlin.math.atan(-bounds.left)).toFloat(), Math.toDegrees(kotlin.math.atan(bounds.right)).toFloat(),
-            Math.toDegrees(kotlin.math.atan(bounds.top)).toFloat(), Math.toDegrees(kotlin.math.atan(-bounds.bottom)).toFloat())
+            outer = Math.toDegrees(atan(-bounds.left)).toFloat(),
+            inner = Math.toDegrees(atan(bounds.right)).toFloat(),
+            up = Math.toDegrees(atan(bounds.top)).toFloat(),
+            down = Math.toDegrees(atan(-bounds.bottom)).toFloat(),
+        )
+
         return EyeParams(Eye.LEFT, optics.left.viewport, fov(optics.left.sourceBounds), -ipdM / 2f, optics.left) to
             EyeParams(Eye.RIGHT, optics.right.viewport, fov(optics.right.sourceBounds), ipdM / 2f, optics.right)
     }
 
+    /**
+     * Column-major, right-handed off-centre perspective projection matrix from [TangentBounds] (§2.3).
+     * `left < 0 < right`, `bottom < 0 < top`.
+     */
     fun projectionMatrix(bounds: TangentBounds, near: Float, far: Float, out: FloatArray) {
-        val left = (near * bounds.left).toFloat(); val right = (near * bounds.right).toFloat()
-        val bottom = (near * bounds.bottom).toFloat(); val top = (near * bounds.top).toFloat()
+        val left = (near * bounds.left).toFloat()
+        val right = (near * bounds.right).toFloat()
+        val bottom = (near * bounds.bottom).toFloat()
+        val top = (near * bounds.top).toFloat()
+
         out.fill(0f)
-        out[0] = 2f * near / (right - left); out[5] = 2f * near / (top - bottom)
-        out[8] = (right + left) / (right - left); out[9] = (top + bottom) / (top - bottom)
-        out[10] = -(far + near) / (far - near); out[11] = -1f; out[14] = -2f * far * near / (far - near)
+        out[0] = 2f * near / (right - left)
+        out[5] = 2f * near / (top - bottom)
+        out[8] = (right + left) / (right - left)
+        out[9] = (top + bottom) / (top - bottom)
+        out[10] = -(far + near) / (far - near)
+        out[11] = -1f
+        out[14] = -2f * far * near / (far - near)
     }
 
     /**
-     * Off-centre perspective frustum for a [FovAngles]. [fov.outer]/[fov.inner]
-     * are treated as the left/right half-angles respectively — pass a
-     * [FovAngles] with `outer`/`inner` swapped for the right eye.
+     * Off-centre perspective frustum for a [FovAngles]. Legacy helper.
      */
     fun projectionMatrix(fov: FovAngles, near: Float, far: Float, out: FloatArray) {
         val left = -tan(Math.toRadians(fov.outer.toDouble())).toFloat() * near
@@ -88,9 +123,6 @@ object StereoLayout {
      * View matrix for one eye: the rotation-only inverse of the head rotation
      * (a transpose), post-translated by the optional neck-model offset and then
      * by `-eyeOffsetX` in head space (ARCHITECTURE.md §6.3).
-     *
-     * With an identity [headRotation] and `neckModel == null` the result is a
-     * pure translation of `(-eyeOffsetX, 0, 0)`.
      */
     fun viewMatrix(
         headRotation: FloatArray,

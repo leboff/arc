@@ -5,119 +5,174 @@ import com.daydreamvr.vrcore.render.Viewport
 import kotlin.math.min
 import kotlin.math.tan
 
-/** The only radial convention accepted by the compositor. */
-enum class RadialConvention { SCREEN_TANGENT_TO_RAY_TANGENT_V1 }
-enum class ParameterConfidence { VERIFIED, PROVISIONAL, USER_CALIBRATED }
-enum class VerticalAlignment { CENTER, BOTTOM }
-
-data class RadialCoefficients(val k1: Double, val k2: Double)
-data class TangentBounds(val left: Double, val right: Double, val bottom: Double, val top: Double) {
-    init { require(left < 0.0 && right > 0.0 && bottom < 0.0 && top > 0.0) }
-}
-data class PixelInsets(val left: Int = 0, val right: Int = 0, val bottom: Int = 0, val top: Int = 0)
-data class Affine2D(val sx: Double = 1.0, val sy: Double = 1.0, val tx: Double = 0.0, val ty: Double = 0.0) {
-    fun map(x: Double, y: Double): Vec2 = Vec2(sx * x + tx, sy * y + ty)
-}
-data class Vec2(val x: Double, val y: Double)
-data class DisplayGeometry(
-    val panelWidthM: Double, val panelHeightM: Double,
-    val surfaceWidthPx: Int, val surfaceHeightPx: Int,
-    val surfaceToPanel: Affine2D = Affine2D(), val usableInsets: PixelInsets = PixelInsets(),
-    val measurementSource: String = "estimated", val measurementRevision: Int = 1,
-)
-data class MaxFov(val outer: Double, val inner: Double, val up: Double, val down: Double)
-data class ViewerOptics(
-    val profileId: String, val profileRevision: Int = 1,
-    val lensSeparationM: Double, val horizontalOffsetM: Double = 0.0,
-    val verticalAlignment: VerticalAlignment = VerticalAlignment.CENTER,
-    val verticalOffsetM: Double = 0.0, val trayToActiveBottomM: Double? = null,
-    val screenToLensM: Double, val coefficients: RadialCoefficients,
-    val convention: RadialConvention = RadialConvention.SCREEN_TANGENT_TO_RAY_TANGENT_V1,
-    val maxFov: MaxFov, val confidence: ParameterConfidence = ParameterConfidence.PROVISIONAL,
-    val dividerPx: Int = 8,
-)
-data class ObserverGeometry(val ipdM: Double = 0.064)
-data class EyeOptics(
-    val eye: Eye, val viewport: Viewport, val lensCenterPanelM: Vec2,
-    val screenToLensM: Double, val coefficients: RadialCoefficients, val sourceBounds: TangentBounds,
-    val panelBottomLeftM: Vec2, val panelTopRightM: Vec2,
-)
-data class StereoOptics(val left: EyeOptics, val right: EyeOptics, val geometryKey: Any)
-
-/** Pure forward/inverse mapping. Radius always means screen/ray tangent radius. */
-object RadialDistortion {
-    fun screenToRay(screen: Vec2, coefficients: RadialCoefficients): Vec2 {
-        validateCoefficients(coefficients)
-        val r2 = screen.x * screen.x + screen.y * screen.y
-        val factor = 1.0 + coefficients.k1 * r2 + coefficients.k2 * r2 * r2
-        require(factor.isFinite()) { "non-finite radial result" }
-        return Vec2(screen.x * factor, screen.y * factor)
-    }
-
-    fun rayToScreen(ray: Vec2, coefficients: RadialCoefficients): Vec2 {
-        validateCoefficients(coefficients)
-        val target = kotlin.math.hypot(ray.x, ray.y)
-        if (target == 0.0) return Vec2(0.0, 0.0)
-        var lo = 0.0
-        var hi = target
-        repeat(64) {
-            val mid = (lo + hi) / 2.0
-            val mapped = mid * (1.0 + coefficients.k1 * mid * mid + coefficients.k2 * mid * mid * mid * mid)
-            if (mapped < target) lo = mid else hi = mid
-        }
-        val radius = (lo + hi) / 2.0
-        return Vec2(ray.x * radius / target, ray.y * radius / target)
-    }
-
-    internal fun validateCoefficients(c: RadialCoefficients) {
-        require(c.k1.isFinite() && c.k2.isFinite() && c.k1 in 0.0..1.0 && c.k2 in 0.0..1.0) { "unsupported radial coefficients" }
-    }
-}
-
-/** Computes viewport, fixed physical lens centres and source bounds from one snapshot. */
+/**
+ * Computes deterministic physical display coordinates, viewport splitting,
+ * fixed lens centers, and source tangent bounds from an immutable configuration snapshot
+ * (DISTORTION_REMEDIATION_PLAN §2.1–§2.3, §3).
+ */
 object OpticsGeometry {
+
+    /**
+     * Computes [StereoOptics] from physical display, viewer optics, and observer geometry.
+     */
     fun compute(display: DisplayGeometry, viewer: ViewerOptics, observer: ObserverGeometry): StereoOptics {
-        validate(display, viewer, observer)
+        validateInputs(display, viewer, observer)
+
+        // Split display pixels deterministically: floor((Nx - D) / 2)
         val dividerLeft = (display.surfaceWidthPx - viewer.dividerPx) / 2
         val dividerRight = dividerLeft + viewer.dividerPx
         val insets = display.usableInsets
-        val leftVp = Viewport(insets.left, insets.bottom, dividerLeft - insets.left, display.surfaceHeightPx - insets.bottom - insets.top)
-        val rightVp = Viewport(dividerRight, insets.bottom, display.surfaceWidthPx - insets.right - dividerRight, display.surfaceHeightPx - insets.bottom - insets.top)
-        require(leftVp.width > 0 && rightVp.width > 0 && leftVp.height > 0 && rightVp.height > 0) { "empty eye viewport" }
+
+        val leftVp = Viewport(
+            x = insets.left,
+            y = insets.bottom,
+            width = dividerLeft - insets.left,
+            height = display.surfaceHeightPx - insets.bottom - insets.top,
+        )
+        val rightVp = Viewport(
+            x = dividerRight,
+            y = insets.bottom,
+            width = (display.surfaceWidthPx - insets.right) - dividerRight,
+            height = display.surfaceHeightPx - insets.bottom - insets.top,
+        )
+
+        if (leftVp.width <= 0 || rightVp.width <= 0 || leftVp.height <= 0 || rightVp.height <= 0) {
+            throw OpticsValidationException("Eye viewport dimensions must be positive (left=$leftVp, right=$rightVp)")
+        }
+
         val cy = when (viewer.verticalAlignment) {
             VerticalAlignment.CENTER -> display.panelHeightM / 2.0 + viewer.verticalOffsetM
-            VerticalAlignment.BOTTOM -> requireNotNull(viewer.trayToActiveBottomM) { "bottom alignment needs measured tray offset" }.let { viewer.verticalOffsetM - it }
+            VerticalAlignment.BOTTOM -> {
+                val trayToLens = viewer.trayToLensHeightM ?: viewer.verticalOffsetM
+                val trayToBottom = requireNotNull(viewer.trayToActiveBottomM) {
+                    "Bottom alignment requires measured trayToActiveBottomM"
+                }
+                trayToLens - trayToBottom
+            }
         }
-        val leftCenter = Vec2(display.panelWidthM / 2.0 + viewer.horizontalOffsetM - viewer.lensSeparationM / 2.0, cy)
-        val rightCenter = Vec2(display.panelWidthM / 2.0 + viewer.horizontalOffsetM + viewer.lensSeparationM / 2.0, cy)
+
+        val leftCenter = Vec2(
+            display.panelWidthM / 2.0 + viewer.horizontalOffsetM - viewer.lensSeparationM / 2.0,
+            cy,
+        )
+        val rightCenter = Vec2(
+            display.panelWidthM / 2.0 + viewer.horizontalOffsetM + viewer.lensSeparationM / 2.0,
+            cy,
+        )
+
         val left = makeEye(Eye.LEFT, leftVp, leftCenter, display, viewer, viewer.maxFov.outer, viewer.maxFov.inner)
         val right = makeEye(Eye.RIGHT, rightVp, rightCenter, display, viewer, viewer.maxFov.inner, viewer.maxFov.outer)
-        val key = listOf(display, viewer, left.viewport, right.viewport, left.lensCenterPanelM, right.lensCenterPanelM, left.sourceBounds, right.sourceBounds)
+
+        // Cache key excludes observer IPD, head pose, neck model, and render scale (§3).
+        val key = listOf(
+            display,
+            viewer,
+            left.viewport,
+            right.viewport,
+            left.lensCenterPanelM,
+            right.lensCenterPanelM,
+            left.sourceBounds,
+            right.sourceBounds,
+        )
+
         return StereoOptics(left, right, key)
     }
 
-    fun panelPoint(display: DisplayGeometry, xPx: Double, yPx: Double): Vec2 =
-        display.surfaceToPanel.map(display.panelWidthM * xPx / display.surfaceWidthPx, display.panelHeightM * yPx / display.surfaceHeightPx)
-
-    private fun makeEye(eye: Eye, viewport: Viewport, center: Vec2, display: DisplayGeometry, viewer: ViewerOptics, maxLeft: Double, maxRight: Double): EyeOptics {
-        val p0 = panelPoint(display, viewport.x.toDouble(), viewport.y.toDouble())
-        val p1 = panelPoint(display, (viewport.x + viewport.width).toDouble(), (viewport.y + viewport.height).toDouble())
-        require(center.x in p0.x..p1.x && center.y in p0.y..p1.y) { "lens center outside usable viewport" }
-        fun f(a: Double) = a * (1.0 + viewer.coefficients.k1 * a * a + viewer.coefficients.k2 * a * a * a * a)
-        fun cap(deg: Double) = tan(Math.toRadians(deg))
-        val d = viewer.screenToLensM
-        return EyeOptics(eye, viewport, center, d, viewer.coefficients, TangentBounds(
-            -min(f((center.x - p0.x) / d), cap(maxLeft)), min(f((p1.x - center.x) / d), cap(maxRight)),
-            -min(f((center.y - p0.y) / d), cap(viewer.maxFov.down)), min(f((p1.y - center.y) / d), cap(viewer.maxFov.up)),
-        ), p0, p1)
+    /**
+     * Overload taking [RenderConfiguration].
+     * If [RenderConfiguration.distortionEnabled] is false, evaluates the identity
+     * physical geometry so direct rendering shares the exact unwarped frustum.
+     */
+    fun compute(configuration: RenderConfiguration): StereoOptics {
+        val effectiveViewer = if (configuration.distortionEnabled) {
+            configuration.viewer
+        } else {
+            configuration.viewer.copy(coefficients = RadialCoefficients(0.0, 0.0))
+        }
+        return compute(configuration.display, effectiveViewer, configuration.observer)
     }
 
-    private fun validate(d: DisplayGeometry, v: ViewerOptics, o: ObserverGeometry) {
-        require(d.panelWidthM.isFinite() && d.panelWidthM in 0.08..0.20 && d.panelHeightM.isFinite() && d.panelHeightM in 0.03..0.12)
-        require(d.surfaceWidthPx > 0 && d.surfaceHeightPx > 0 && v.dividerPx in 0..40)
-        require(v.lensSeparationM.isFinite() && v.screenToLensM.isFinite() && v.screenToLensM in 0.030..0.060)
-        require(o.ipdM.isFinite() && o.ipdM in 0.052..0.074)
-        RadialDistortion.validateCoefficients(v.coefficients)
-        listOf(v.maxFov.outer, v.maxFov.inner, v.maxFov.up, v.maxFov.down).forEach { require(it > 0.0 && it < 89.0) }
+    /**
+     * Maps continuous pixel edge coordinates [xPx, yPx] into illuminated panel coordinates in metres.
+     */
+    fun panelPoint(display: DisplayGeometry, xPx: Double, yPx: Double): Vec2 {
+        val rawX = display.panelWidthM * xPx / display.surfaceWidthPx.toDouble()
+        val rawY = display.panelHeightM * yPx / display.surfaceHeightPx.toDouble()
+        return display.surfaceToPanel.map(rawX, rawY)
+    }
+
+    private fun makeEye(
+        eye: Eye,
+        viewport: Viewport,
+        center: Vec2,
+        display: DisplayGeometry,
+        viewer: ViewerOptics,
+        maxLeftDeg: Double,
+        maxRightDeg: Double,
+    ): EyeOptics {
+        val p0 = panelPoint(display, viewport.x.toDouble(), viewport.y.toDouble())
+        val p1 = panelPoint(display, (viewport.x + viewport.width).toDouble(), (viewport.y + viewport.height).toDouble())
+
+        if (center.x < p0.x || center.x > p1.x || center.y < p0.y || center.y > p1.y) {
+            throw OpticsValidationException(
+                "Lens center ($center) outside eye viewport bounds: X in [${p0.x}, ${p1.x}], Y in [${p0.y}, ${p1.y}]"
+            )
+        }
+
+        val d = viewer.screenToLensM
+        val aLeft = (center.x - p0.x) / d
+        val aRight = (p1.x - center.x) / d
+        val aBottom = (center.y - p0.y) / d
+        val aTop = (p1.y - center.y) / d
+
+        fun f(a: Double): Double {
+            val a2 = a * a
+            return a * (1.0 + viewer.coefficients.k1 * a2 + viewer.coefficients.k2 * a2 * a2)
+        }
+
+        fun cap(deg: Double): Double = tan(Math.toRadians(deg))
+
+        val left = -min(f(aLeft), cap(maxLeftDeg))
+        val right = min(f(aRight), cap(maxRightDeg))
+        val bottom = -min(f(aBottom), cap(viewer.maxFov.down))
+        val top = min(f(aTop), cap(viewer.maxFov.up))
+
+        val bounds = TangentBounds(left, right, bottom, top)
+        return EyeOptics(
+            eye = eye,
+            viewport = viewport,
+            lensCenterPanelM = center,
+            screenToLensM = d,
+            coefficients = viewer.coefficients,
+            sourceBounds = bounds,
+            panelBottomLeftM = p0,
+            panelTopRightM = p1,
+        )
+    }
+
+    private fun validateInputs(d: DisplayGeometry, v: ViewerOptics, o: ObserverGeometry) {
+        if (!d.panelWidthM.isFinite() || d.panelWidthM !in 0.08..0.20) {
+            throw OpticsValidationException("Invalid panel width ${d.panelWidthM} m (expected [0.08, 0.20])")
+        }
+        if (!d.panelHeightM.isFinite() || d.panelHeightM !in 0.03..0.12) {
+            throw OpticsValidationException("Invalid panel height ${d.panelHeightM} m (expected [0.03, 0.12])")
+        }
+        if (d.surfaceWidthPx <= 0 || d.surfaceHeightPx <= 0) {
+            throw OpticsValidationException("Invalid surface dimensions ${d.surfaceWidthPx}x${d.surfaceHeightPx}")
+        }
+        if (v.dividerPx !in 0..40) {
+            throw OpticsValidationException("Invalid divider ${v.dividerPx} px (expected [0, 40])")
+        }
+        if (!v.screenToLensM.isFinite() || v.screenToLensM !in 0.030..0.060) {
+            throw OpticsValidationException("Invalid screen-to-lens ${v.screenToLensM} m (expected [0.030, 0.060])")
+        }
+        if (!o.ipdM.isFinite() || o.ipdM !in 0.052..0.074) {
+            throw OpticsValidationException("Invalid observer IPD ${o.ipdM} m (expected [0.052, 0.074])")
+        }
+        listOf(v.maxFov.outer, v.maxFov.inner, v.maxFov.up, v.maxFov.down).forEach {
+            if (!it.isFinite() || it <= 0.0 || it >= 89.0) {
+                throw OpticsValidationException("FOV angle cap $it° must be within (0, 89) degrees")
+            }
+        }
     }
 }

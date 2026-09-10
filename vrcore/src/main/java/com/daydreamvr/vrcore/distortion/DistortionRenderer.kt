@@ -10,11 +10,10 @@ import com.daydreamvr.vrcore.render.EyeParams
 
 /**
  * Resolves an [com.daydreamvr.vrcore.render.EyeFramebuffer] colour texture through
- * the [DistortionMesh] onto whatever framebuffer is currently bound — the
- * backbuffer, in the frame loop (ARCHITECTURE.md §6.1 step 7).
+ * the [DistortionMesh] onto the bound framebuffer (the display backbuffer).
  *
- * One static warp mesh per eye, rebuilt only when the profile or the surface size
- * changes. GL thread only.
+ * One coherent warp mesh pair, rebuilt only when the optical snapshot changes.
+ * GL thread only.
  */
 class DistortionRenderer(private val gridSize: Int = 40) {
 
@@ -25,23 +24,35 @@ class DistortionRenderer(private val gridSize: Int = 40) {
 
     fun onGlCreate() {
         shader = Shader(DistortionShaders.VERTEX, DistortionShaders.FRAGMENT)
+        leftMesh?.release()
+        rightMesh?.release()
+        leftMesh = null
+        rightMesh = null
         meshKey = null
     }
 
     /**
-     * Rebuilds both warp meshes if [left]/[right]/[profile] differ from the last
-     * build. Safe to call every frame.
+     * Rebuilds both warp meshes if the optical geometry differs from the last build.
+     * Builds both replacements before releasing the active coherent pair (§3).
+     * Safe to call every frame.
      */
     fun updateMeshes(left: EyeParams, right: EyeParams) {
-        val key = listOf(
-            left.optics, right.optics, gridSize,
-        )
+        val key = listOf(left.optics, right.optics, gridSize)
         if (key == meshKey) return
-        // Construct both replacements before releasing the coherent installed pair.
+
         val newLeft = DistortionMesh.build(left, gridSize)
-        val newRight = try { DistortionMesh.build(right, gridSize) } catch (t: Throwable) { newLeft.release(); throw t }
-        leftMesh?.release(); rightMesh?.release()
-        leftMesh = newLeft; rightMesh = newRight; meshKey = key
+        val newRight = try {
+            DistortionMesh.build(right, gridSize)
+        } catch (t: Throwable) {
+            newLeft.release()
+            throw t
+        }
+
+        leftMesh?.release()
+        rightMesh?.release()
+        leftMesh = newLeft
+        rightMesh = newRight
+        meshKey = key
     }
 
     /**
@@ -54,6 +65,7 @@ class DistortionRenderer(private val gridSize: Int = 40) {
         val vp = eye.viewport
 
         GLES30.glViewport(vp.x, vp.y, vp.width, vp.height)
+        GLES30.glScissor(vp.x, vp.y, vp.width, vp.height)
         GLES30.glDisable(GLES30.GL_DEPTH_TEST)
         GLES30.glDisable(GLES30.GL_BLEND)
 

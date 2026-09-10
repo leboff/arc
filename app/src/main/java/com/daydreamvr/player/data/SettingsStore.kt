@@ -14,13 +14,15 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Persists the settings blob and the resume-positions table (ARCHITECTURE.md §13)
  * as `kotlinx.serialization` JSON in a `DataStore<Preferences>`.
+ *
+ * Implements schema V2 migration, atomic legacy backup, and per-profile override preservation
+ * (DISTORTION_REMEDIATION_PLAN §5).
  */
 class SettingsStore(context: Context) {
 
@@ -46,39 +48,7 @@ class SettingsStore(context: Context) {
         val dividerPx: Int = 8,
         val distortionCorrection: Boolean = true,
         val gamepadAbSwapped: Boolean = false,
-    )
-
-    /** V2 separates storage/equation revisions from the legacy active tuple. */
-    @Serializable
-    data class SettingsBlobV2(
-        val schemaVersion: Int = 2,
-        val opticsModelVersion: Int = 1,
-        val deviceProfileId: String = "daydream_view_2017",
-        val predictionEnabled: Boolean = true,
-        val neckModelEnabled: Boolean = true,
-        val autoRecenterIdleSeconds: Int = 0,
-        val observerIpdMm: Float = 64f,
-        val screenDistanceM: Float = 4f,
-        val screenWidthDegrees: Float = 60f,
-        val dividerPx: Int = 8,
-        val distortionCorrection: Boolean = true,
-        val gamepadAbSwapped: Boolean = false,
-        val viewerOverrides: Map<String, ViewerOverride> = emptyMap(),
-        val displayCalibrations: Map<String, DisplayCalibration> = emptyMap(),
-        val legacyCalibration: LegacyCalibration? = null,
-        val needsOpticsRecalibration: Boolean = false,
-        val migrationStatus: String = "v2",
-    )
-
-    @Serializable data class ViewerOverride(
-        val profileRevision: Int = 1, val convention: String = "SCREEN_TANGENT_TO_RAY_TANGENT_V1",
-        val screenToLensMm: Float? = null, val lensK1: Float? = null, val lensK2: Float? = null,
-        val confidence: String = "USER_CALIBRATED",
-    )
-    @Serializable data class DisplayCalibration(val panelWidthM: Float, val panelHeightM: Float, val revision: Int = 1)
-    @Serializable data class LegacyCalibration(
-        val profileId: String?, val lensK1: Float?, val lensK2: Float?, val screenToLensMm: Float?, val ipdMm: Float?,
-        val convention: String = "LEGACY_CLIP_INVERSE",
+        val subnetPrefix: String? = null,
     )
 
     @Serializable
@@ -89,19 +59,53 @@ class SettingsStore(context: Context) {
         val finishedAtMs: Long?,
     )
 
-    /** Migration occurs before publication, so defaults cannot overwrite legacy optics. */
+    /** Emits after reading and executing any pending migration atomically. */
     val settings = flow { emit(readAndMigrate()) }
 
     suspend fun current(): Settings = readAndMigrate()
+
+    suspend fun currentV2(): SettingsBlobV2 {
+        val raw = store.data.first()[settingsKey]
+        val outcome = SettingsMigration.migrate(raw)
+        return outcome.blob
+    }
 
     suspend fun save(settings: Settings) {
         store.edit { prefs ->
             val raw = prefs[settingsKey]
             val root = raw?.let { runCatching { json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
-            // A newer writer owns its blob; ordinary saves must not downgrade it.
-            if (root?.get("schemaVersion")?.jsonPrimitive?.intOrNull?.let { it > 2 } == true) return@edit
-            val existing = raw?.let { runCatching { json.decodeFromString<SettingsBlobV2>(it) }.getOrNull() }
-            prefs[settingsKey] = json.encodeToString(settings.toV2(existing))
+            val version = root?.get("schemaVersion")?.jsonPrimitive?.intOrNull
+            // Never overwrite a future schema version
+            if (version != null && version > 2) return@edit
+
+            val outcome = SettingsMigration.migrate(raw)
+            val existingV2 = outcome.blob
+
+            val updatedOverrides = existingV2.viewerOverrides + (settings.deviceProfileId to ViewerOverride(
+                profileRevision = 1,
+                convention = "SCREEN_TANGENT_TO_RAY_TANGENT_V1",
+                screenToLensMm = settings.screenToLensMm,
+                lensK1 = settings.lensK1,
+                lensK2 = settings.lensK2,
+                confidence = "USER_CALIBRATED",
+            ))
+
+            val v2 = existingV2.copy(
+                deviceProfileId = settings.deviceProfileId,
+                predictionEnabled = settings.predictionEnabled,
+                neckModelEnabled = settings.neckModelEnabled,
+                autoRecenterIdleSeconds = settings.autoRecenterIdleSeconds,
+                observerIpdMm = settings.ipdMm,
+                screenDistanceM = settings.screenDistanceM,
+                screenWidthDegrees = settings.screenWidthDegrees,
+                dividerPx = settings.dividerPx,
+                distortionCorrection = settings.distortionCorrection,
+                gamepadAbSwapped = settings.gamepadAbSwapped,
+                subnetPrefix = settings.subnetPrefix,
+                viewerOverrides = updatedOverrides,
+            )
+
+            prefs[settingsKey] = json.encodeToString(v2)
         }
     }
 
@@ -117,81 +121,41 @@ class SettingsStore(context: Context) {
     }
 
     private suspend fun readAndMigrate(): Settings {
-        val raw = store.data.first()[settingsKey] ?: return Settings()
-        val root = runCatching { json.parseToJsonElement(raw) as? JsonObject }.getOrNull() ?: return Settings()
-        val version = root["schemaVersion"]?.jsonPrimitive?.intOrNull
-        if (version != null && version > 2) return Settings() // recovery/read-only: never rewrite newer data
-        if (version == 2) return runCatching { json.decodeFromString<SettingsBlobV2>(raw).toSettings() }.getOrDefault(Settings())
-        val legacy = runCatching { json.decodeFromString<SettingsBlob>(raw) }.getOrNull() ?: return Settings()
-        val v2 = legacy.toV2(root)
-        // Backup and replacement are one Preferences transaction; resume.positions is untouched.
-        store.edit { prefs ->
-            if (prefs[legacyBackupKey] == null) prefs[legacyBackupKey] = raw
-            prefs[settingsKey] = json.encodeToString(v2)
+        val raw = store.data.first()[settingsKey]
+        val outcome = SettingsMigration.migrate(raw)
+
+        if (outcome is MigrationOutcome.MigratedFromV1) {
+            store.edit { prefs ->
+                if (prefs[legacyBackupKey] == null) {
+                    prefs[legacyBackupKey] = outcome.legacyRawString
+                }
+                prefs[settingsKey] = json.encodeToString(outcome.blob)
+            }
         }
-        return v2.toSettings()
+
+        return outcome.blob.toSettings()
     }
 
-    private fun SettingsBlob.toSettings() = Settings(
-        deviceProfileId = deviceProfileId,
-        predictionEnabled = predictionEnabled,
-        neckModelEnabled = neckModelEnabled,
-        autoRecenterIdleSeconds = autoRecenterIdleSeconds,
-        ipdMm = ipdMm,
-        screenDistanceM = screenDistanceM,
-        screenWidthDegrees = screenWidthDegrees,
-        screenToLensMm = screenToLensMm,
-        lensK1 = lensK1,
-        lensK2 = lensK2,
-        dividerPx = dividerPx,
-        distortionCorrection = distortionCorrection,
-        gamepadAbSwapped = gamepadAbSwapped,
-    )
+    private fun SettingsBlobV2.toSettings(): Settings {
+        val override = viewerOverrides[deviceProfileId]
+        val base = com.daydreamvr.vrcore.profile.DeviceProfiles.byId(deviceProfileId)
+            ?: com.daydreamvr.vrcore.profile.DeviceProfiles.DEFAULT
 
-    private fun SettingsBlobV2.toSettings() = Settings(
-        deviceProfileId = deviceProfileId,
-        predictionEnabled = predictionEnabled, neckModelEnabled = neckModelEnabled,
-        autoRecenterIdleSeconds = autoRecenterIdleSeconds, ipdMm = observerIpdMm,
-        screenDistanceM = screenDistanceM, screenWidthDegrees = screenWidthDegrees,
-        // Legacy scalar fields are UI compatibility only; resolve from V2's per-viewer override/baseline.
-        screenToLensMm = viewerOverrides[deviceProfileId]?.screenToLensMm ?: baseline().screenToLensDistanceM * 1000f,
-        lensK1 = viewerOverrides[deviceProfileId]?.lensK1 ?: baseline().distortionK[0],
-        lensK2 = viewerOverrides[deviceProfileId]?.lensK2 ?: baseline().distortionK[1],
-        dividerPx = dividerPx, distortionCorrection = distortionCorrection, gamepadAbSwapped = gamepadAbSwapped,
-    )
-
-    private fun SettingsBlob.toV2(original: JsonObject? = null): SettingsBlobV2 {
-        val validIpd = ipdMm.takeIf { it.isFinite() && it in 52f..74f } ?: 64f
-        val profile = deviceProfileId.takeIf { com.daydreamvr.vrcore.profile.DeviceProfiles.byId(it) != null } ?: "daydream_view_2017"
-        return SettingsBlobV2(
-            deviceProfileId = profile, predictionEnabled = predictionEnabled, neckModelEnabled = neckModelEnabled,
-            autoRecenterIdleSeconds = autoRecenterIdleSeconds, observerIpdMm = validIpd,
-            screenDistanceM = screenDistanceM, screenWidthDegrees = screenWidthDegrees,
-            dividerPx = dividerPx.coerceIn(0, 40), distortionCorrection = distortionCorrection, gamepadAbSwapped = gamepadAbSwapped,
-            legacyCalibration = LegacyCalibration(original?.get("deviceProfileId")?.jsonPrimitive?.contentOrNull, lensK1, lensK2, screenToLensMm, ipdMm),
-            needsOpticsRecalibration = true, migrationStatus = "migrated-v1",
+        return Settings(
+            deviceProfileId = deviceProfileId,
+            predictionEnabled = predictionEnabled,
+            neckModelEnabled = neckModelEnabled,
+            autoRecenterIdleSeconds = autoRecenterIdleSeconds,
+            ipdMm = observerIpdMm,
+            screenDistanceM = screenDistanceM,
+            screenWidthDegrees = screenWidthDegrees,
+            screenToLensMm = override?.screenToLensMm ?: (base.screenToLensDistanceM * 1000f),
+            lensK1 = override?.lensK1 ?: base.distortionK.getOrElse(0) { 0f },
+            lensK2 = override?.lensK2 ?: base.distortionK.getOrElse(1) { 0f },
+            dividerPx = dividerPx,
+            distortionCorrection = distortionCorrection,
+            gamepadAbSwapped = gamepadAbSwapped,
+            subnetPrefix = subnetPrefix,
         )
     }
-
-    private fun SettingsBlobV2.baseline() = com.daydreamvr.vrcore.profile.DeviceProfiles.byId(deviceProfileId)
-        ?: com.daydreamvr.vrcore.profile.DeviceProfiles.DEFAULT
-
-    private fun Settings.toV2(existing: SettingsBlobV2? = null): SettingsBlobV2 = SettingsBlobV2(
-        deviceProfileId = deviceProfileId,
-        predictionEnabled = predictionEnabled,
-        neckModelEnabled = neckModelEnabled,
-        autoRecenterIdleSeconds = autoRecenterIdleSeconds,
-        observerIpdMm = ipdMm,
-        screenDistanceM = screenDistanceM,
-        screenWidthDegrees = screenWidthDegrees,
-        dividerPx = dividerPx,
-        distortionCorrection = distortionCorrection,
-        gamepadAbSwapped = gamepadAbSwapped,
-        viewerOverrides = (existing?.viewerOverrides ?: emptyMap()) + (deviceProfileId to ViewerOverride(
-            screenToLensMm = screenToLensMm, lensK1 = lensK1, lensK2 = lensK2,
-        )),
-        displayCalibrations = existing?.displayCalibrations ?: emptyMap(),
-        legacyCalibration = existing?.legacyCalibration,
-        needsOpticsRecalibration = existing?.needsOpticsRecalibration ?: false,
-    )
 }

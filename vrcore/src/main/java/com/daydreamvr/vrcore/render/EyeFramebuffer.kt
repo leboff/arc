@@ -4,7 +4,7 @@ import android.opengl.GLES30
 import com.daydreamvr.vrcore.gl.GlUtils
 
 /**
- * An offscreen render target for one eye (ARCHITECTURE.md §6.6).
+ * An offscreen render target for one eye (ARCHITECTURE.md §6.6 / DISTORTION_REMEDIATION_PLAN §1, §6).
  *
  * The scene renders into this FBO at `renderScale × viewportSize` (supersample),
  * optionally multisampled; [resolve] blits it down to a plain colour texture the
@@ -75,6 +75,11 @@ class EyeFramebuffer(
             GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, colorTex, 0,
         )
 
+        val resolveStatus = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
+        require(resolveStatus == GLES30.GL_FRAMEBUFFER_COMPLETE) {
+            "Resolve framebuffer incomplete: status=0x${Integer.toHexString(resolveStatus)}"
+        }
+
         if (samples > 0) {
             GLES30.glGenRenderbuffers(1, ids, 0)
             msaaColorRb = ids[0]
@@ -99,6 +104,11 @@ class EyeFramebuffer(
             GLES30.glFramebufferRenderbuffer(
                 GLES30.GL_FRAMEBUFFER, GLES30.GL_DEPTH_ATTACHMENT, GLES30.GL_RENDERBUFFER, depthRb,
             )
+
+            val renderStatus = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
+            require(renderStatus == GLES30.GL_FRAMEBUFFER_COMPLETE) {
+                "Multisample render framebuffer incomplete: status=0x${Integer.toHexString(renderStatus)}"
+            }
         } else {
             GLES30.glGenRenderbuffers(1, ids, 0)
             depthRb = ids[0]
@@ -107,6 +117,10 @@ class EyeFramebuffer(
             GLES30.glFramebufferRenderbuffer(
                 GLES30.GL_FRAMEBUFFER, GLES30.GL_DEPTH_ATTACHMENT, GLES30.GL_RENDERBUFFER, depthRb,
             )
+            val singleStatus = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
+            require(singleStatus == GLES30.GL_FRAMEBUFFER_COMPLETE) {
+                "Render framebuffer incomplete: status=0x${Integer.toHexString(singleStatus)}"
+            }
             renderFbo = resolveFbo
         }
 
@@ -121,20 +135,25 @@ class EyeFramebuffer(
         GLES30.glViewport(0, 0, width, height)
     }
 
-    /** Resolves MSAA (if any) and returns the plain colour texture id. */
+    /**
+     * Resolves MSAA (if any) and returns the plain colour texture id.
+     * Establishes its own scissor state so a caller's eye scissor cannot crop the resolve blit (§1, §6).
+     */
     fun resolve(): Int {
         if (renderFbo != resolveFbo) {
-            // Blits are framebuffer operations, not eye draws. An inherited eye
-            // scissor can otherwise crop a supersampled resolve.
-            GLES30.glDisable(GLES30.GL_SCISSOR_TEST)
-            GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, renderFbo)
-            GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, resolveFbo)
-            GLES30.glBlitFramebuffer(
-                0, 0, width, height, 0, 0, width, height,
-                GLES30.GL_COLOR_BUFFER_BIT, GLES30.GL_NEAREST,
-            )
-            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
-            GLES30.glEnable(GLES30.GL_SCISSOR_TEST)
+            val scissorWasEnabled = GLES30.glIsEnabled(GLES30.GL_SCISSOR_TEST)
+            if (scissorWasEnabled) GLES30.glDisable(GLES30.GL_SCISSOR_TEST)
+            try {
+                GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, renderFbo)
+                GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, resolveFbo)
+                GLES30.glBlitFramebuffer(
+                    0, 0, width, height, 0, 0, width, height,
+                    GLES30.GL_COLOR_BUFFER_BIT, GLES30.GL_NEAREST,
+                )
+                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+            } finally {
+                if (scissorWasEnabled) GLES30.glEnable(GLES30.GL_SCISSOR_TEST)
+            }
         }
         return colorTex
     }

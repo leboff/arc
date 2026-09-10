@@ -1,6 +1,7 @@
 package com.daydreamvr.player.screens
 
 import android.graphics.Canvas
+import com.daydreamvr.player.data.OpticsSettingsResolver
 import com.daydreamvr.player.state.AppState
 import com.daydreamvr.player.state.Settings
 import com.daydreamvr.player.state.VrScreen
@@ -11,19 +12,10 @@ import com.daydreamvr.vrcore.ui.Theme
 import java.util.Locale
 
 /**
- * The in-VR optics calibration surface (ARCHITECTURE.md §6.6 / §11.4, Phase 6).
+ * The in-VR optics calibration surface (ARCHITECTURE.md §6.6 / §11.4, Phase 6 / DISTORTION_REMEDIATION_PLAN §6).
  *
- * It draws a large, flat, high-contrast reference grid on a wall-sized panel
- * behind the [SettingsScreen] list. With distortion correction on and the right
- * `k1`/`k2` the grid lines are straight through the real lenses; wrong values
- * bow them. The user nudges IPD, screen-to-lens distance, `k1`, `k2` and the
- * divider width with left/right on the matching [SettingsScreen] row and watches
- * the grid react live — the one situation where the correct values are obvious
- * and a touch UI would be useless.
- *
- * The panel itself is only ever repainted when a calibration value changed
- * (ARCHITECTURE.md R4); the correction maths happen in the distortion mesh, fed
- * the [overrideProfile] this screen derives.
+ * Displays reference grid lines and optical readout. Observer IPD adjusts stereo scale,
+ * while screen-to-lens, k1, k2, and divider width calibrate physical optics independently.
  */
 class CalibrationScreen(panel: PanelSurface, theme: Theme) :
     ScreenPanel(panel, theme, panelWidthM = 6.0f, panelHeightM = 4.0f) {
@@ -68,7 +60,7 @@ class CalibrationScreen(panel: PanelSurface, theme: Theme) :
         val paint = theme.textPaint(size, theme.textPrimary, bold = true)
         val text = String.format(
             Locale.US,
-            "IPD %.1f mm   lens %.1f mm   k1 %.2f   k2 %.2f   divider %d px   distortion %s",
+            "Observer IPD %.1f mm   lens %.1f mm   k1 %.2f   k2 %.2f   divider %d px   distortion %s",
             s.ipdMm, s.screenToLensMm, s.lensK1, s.lensK2, s.dividerPx,
             if (s.distortionCorrection) "on" else "off",
         )
@@ -87,14 +79,10 @@ class CalibrationScreen(panel: PanelSurface, theme: Theme) :
         )
 
         /**
-         * Folds the user's live calibration into [base], producing the profile the
-         * renderer and distortion mesh actually use. Observer IPD deliberately
-         * does not alter fixed viewer lens centres, source bounds, or warp UVs.
+         * Folds the user's live calibration into a [DeviceProfile] via [OpticsSettingsResolver].
+         * Fixed viewer interLensDistanceM is strictly preserved from the profile baseline (§4).
          */
-        fun overrideProfile(base: DeviceProfile, s: Settings): DeviceProfile = base.copy(
-            screenToLensDistanceM = s.screenToLensMm / 1000f,
-            distortionK = floatArrayOf(s.lensK1, s.lensK2),
-            dividerPx = s.dividerPx,
-        )
+        fun overrideProfile(base: DeviceProfile, s: Settings): DeviceProfile =
+            OpticsSettingsResolver.resolveDeviceProfile(s)
     }
 }

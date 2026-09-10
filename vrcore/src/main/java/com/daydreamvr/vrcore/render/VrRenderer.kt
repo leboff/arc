@@ -8,13 +8,7 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
 /**
- * The frame loop (ARCHITECTURE.md §6.1). Runs on the GL thread only. It reads the
- * device profile and head pose through the injected providers — in Phase 1 the
- * pose provider always returns identity (no sensors yet).
- *
- * The GL thread never blocks and never allocates on the hot path beyond the
- * two [EyeParams] returned by [StereoLayout.layout]; zero-allocation is enforced
- * in Phase 6.
+ * The frame loop (ARCHITECTURE.md §6.1 / DISTORTION_REMEDIATION_PLAN §2, §3). Runs on the GL thread only.
  */
 class VrRenderer(
     private val scene: Scene,
@@ -27,8 +21,8 @@ class VrRenderer(
 
     /**
      * When true the scene renders per eye into an offscreen [EyeFramebuffer] and
-     * is resolved to the backbuffer through the lens-distortion warp mesh
-     * (ARCHITECTURE.md §6.6). Off ⇒ straight-to-backbuffer, as in Phase 1–5.
+     * is resolved to the backbuffer through the lens-distortion warp mesh.
+     * Off ⇒ straight-to-backbuffer sharing the unwarped direct projection.
      */
     var distortionEnabled: Boolean = false
 
@@ -42,8 +36,8 @@ class VrRenderer(
 
     /** Physical display size in metres — set by the host from `DisplayMetrics`. */
     var displayWidthM: Float = 0.140f
-    var displayHeightM: Float = 0.065f
-    var ipdM: Float = 0.063f
+    var displayHeightM: Float = 0.070f
+    var ipdM: Float = 0.064f
     var near: Float = 0.1f
     var far: Float = 100f
 
@@ -79,6 +73,7 @@ class VrRenderer(
         surfaceWidth = width
         surfaceHeight = height
         GLES30.glViewport(0, 0, width, height)
+        GLES30.glScissor(0, 0, width, height)
         scene.onGlResize(width, height)
     }
 
@@ -95,10 +90,16 @@ class VrRenderer(
         val pose = poseProvider()
         scene.update(dt, pose)
 
-        if (width == 0 || height == 0) return
+        if (width <= 0 || height <= 0) return
 
         val (left, right) = StereoLayout.layout(
-            width, height, displayWidthM, displayHeightM, profile, ipdM,
+            surfaceWidthPx = width,
+            surfaceHeightPx = height,
+            displayWidthM = displayWidthM,
+            displayHeightM = displayHeightM,
+            profile = profile,
+            ipdM = ipdM,
+            distortionEnabled = distortionEnabled,
         )
 
         if (distortionEnabled) {
@@ -117,7 +118,7 @@ class VrRenderer(
         height: Int,
     ) {
         // Clear the whole surface black first so the divider gutter stays black
-        // no matter what an eye clears to during development (ARCHITECTURE.md §6.2).
+        GLES30.glViewport(0, 0, width, height)
         GLES30.glScissor(0, 0, width, height)
         GLES30.glClearColor(0f, 0f, 0f, 1f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)

@@ -1,11 +1,11 @@
 package com.daydreamvr.vrcore.profile
 
+import com.daydreamvr.vrcore.optics.ParameterConfidence
+import com.daydreamvr.vrcore.optics.RadialConvention
 import com.daydreamvr.vrcore.render.FovAngles
 
 /**
- * Passive-viewer optics. There is no lens metadata from the OS (ARCHITECTURE.md
- * §1.3), so these come from a hardcoded table ([DeviceProfiles]) and are then
- * fine-tuned by the user against a calibration grid (Phase 6).
+ * Passive-viewer optics (ARCHITECTURE.md §1.3 / DISTORTION_REMEDIATION_PLAN §3, §4).
  *
  * All distances are metres.
  *
@@ -23,6 +23,8 @@ class DeviceProfile(
     val chromaticScale: FloatArray?,
     val dividerPx: Int = 8,
     val neckModelM: FloatArray = floatArrayOf(0f, -0.075f, 0.080f),
+    val confidence: ParameterConfidence = ParameterConfidence.PROVISIONAL,
+    val convention: RadialConvention = RadialConvention.SCREEN_TANGENT_TO_RAY_TANGENT_V1,
 ) {
     fun copy(
         id: String = this.id,
@@ -35,9 +37,11 @@ class DeviceProfile(
         chromaticScale: FloatArray? = this.chromaticScale,
         dividerPx: Int = this.dividerPx,
         neckModelM: FloatArray = this.neckModelM,
+        confidence: ParameterConfidence = this.confidence,
+        convention: RadialConvention = this.convention,
     ): DeviceProfile = DeviceProfile(
         id, displayName, interLensDistanceM, screenToLensDistanceM, trayToLensHeightM,
-        maxFovDegrees, distortionK, chromaticScale, dividerPx, neckModelM,
+        maxFovDegrees, distortionK, chromaticScale, dividerPx, neckModelM, confidence, convention,
     )
 
     override fun equals(other: Any?): Boolean {
@@ -60,7 +64,9 @@ class DeviceProfile(
             distortionK.contentEquals(other.distortionK) &&
             chromaticEqual &&
             dividerPx == other.dividerPx &&
-            neckModelM.contentEquals(other.neckModelM)
+            neckModelM.contentEquals(other.neckModelM) &&
+            confidence == other.confidence &&
+            convention == other.convention
     }
 
     override fun hashCode(): Int {
@@ -74,8 +80,10 @@ class DeviceProfile(
         result = 31 * result + (chromaticScale?.contentHashCode() ?: 0)
         result = 31 * result + dividerPx
         result = 31 * result + neckModelM.contentHashCode()
+        result = 31 * result + confidence.hashCode()
+        result = 31 * result + convention.hashCode()
         return result
     }
 
-    override fun toString(): String = "DeviceProfile($id)"
+    override fun toString(): String = "DeviceProfile($id, confidence=$confidence)"
 }
