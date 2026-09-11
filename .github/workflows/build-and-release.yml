@@ -53,9 +53,16 @@ jobs:
         id: version
         run: |
           # versionName: the git tag with a leading "v" stripped (e.g. v0.9.3 -> 0.9.3).
-          # Falls back to "0.0.0-<shortsha>" for untagged builds (PRs, plain master pushes)
-          # so those builds are never mistaken for a real release.
-          RAW_TAG=$(git describe --tags --exact-match 2>/dev/null || echo "")
+          # When this run was triggered by a tag push, GITHUB_REF names that tag
+          # exactly -- use it directly rather than `git describe --tags`, which is
+          # ambiguous (and resolves unpredictably) when multiple tags point at the
+          # same commit, as happens whenever a new tag is cut with no new commits
+          # since the last one.
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            RAW_TAG="${GITHUB_REF#refs/tags/}"
+          else
+            RAW_TAG=$(git describe --tags --exact-match 2>/dev/null || echo "")
+          fi
           if [ -n "$RAW_TAG" ]; then
             VERSION_NAME="${RAW_TAG#v}"
           else
