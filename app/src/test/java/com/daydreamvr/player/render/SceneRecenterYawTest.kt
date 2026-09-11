@@ -33,7 +33,6 @@ class SceneRecenterYawTest {
             stateProvider = { currentState },
             snapshotProvider = { PlaybackSnapshot.EMPTY },
             thumbnailCacheProvider = { throw UnsupportedOperationException() },
-            onVideoSurfaceReady = {},
         )
 
         // Simulate head turned 45° to the right

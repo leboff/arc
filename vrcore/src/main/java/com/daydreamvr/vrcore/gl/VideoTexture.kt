@@ -75,14 +75,19 @@ class VideoTexture {
         System.arraycopy(transform, 0, out, 0, 16)
     }
 
+    /** Releases the GL texture while surface ownership is transferred elsewhere. */
+    fun releaseTextureOnly() {
+        if (textureId != 0) {
+            GLES30.glDeleteTextures(1, intArrayOf(textureId), 0)
+            textureId = 0
+        }
+    }
+
     fun release() {
         _surface?.release()
         _surface = null
         _surfaceTexture?.release()
         _surfaceTexture = null
-        if (textureId != 0) {
-            GLES30.glDeleteTextures(1, intArrayOf(textureId), 0)
-            textureId = 0
-        }
+        releaseTextureOnly()
     }
 }

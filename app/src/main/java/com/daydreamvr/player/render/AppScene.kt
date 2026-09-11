@@ -51,7 +51,8 @@ class AppScene(
     private val thermalStatusProvider: () -> Int = { 0 },
     /** The shared thumbnail cache the browse grid peeks each repaint (§9). */
     private val thumbnailCacheProvider: () -> ThumbnailCache,
-    private val onVideoSurfaceReady: (Surface) -> Unit,
+    private val onVideoSurfaceCreated: (Surface, Long, Surface?) -> Unit = { _, _, _ -> },
+    private val onVideoSurfaceDestroyed: (Surface?, Long) -> Unit = { _, _ -> },
 ) : Scene {
 
     private var serverList: ServerListScreen? = null
@@ -71,7 +72,7 @@ class AppScene(
 
     private val cylinder = CylinderScreen()
     private val sphere = SphereScreen()
-    private val video = VideoTexture()
+    private var video = VideoTexture()
     private val reticle = Reticle()
     private val groundGrid = GroundGrid()
 
@@ -87,6 +88,7 @@ class AppScene(
     private var listWindowReported = false
 
     private var created = false
+    private var videoGeneration: Long = 0L
 
     private val worldYaw = com.daydreamvr.vrcore.render.WorldYaw()
     private var screenAnchorYaw = 0f
@@ -126,7 +128,17 @@ class AppScene(
         }
 
     override fun onGlCreate() {
-        if (created) onGlDestroy()
+        val oldSurface = if (created) runCatching { video.surface }.getOrNull() else null
+        val generation = ++videoGeneration
+        if (created) {
+            listOfNotNull(serverList, browse, dock, settings, calibration, gamepadCal, hud, overlay)
+                .forEach { it.onGlDestroy() }
+            cylinder.onGlDestroy()
+            sphere.onGlDestroy()
+            reticle.onGlDestroy()
+            groundGrid.onGlDestroy()
+            video.releaseTextureOnly()
+        }
 
         serverList = ServerListScreen(PanelSurface(1024, 676), theme).also { it.onGlCreate() }
         browse = BrowseScreen(PanelSurface(BrowseLayout.WIDTH_PX, BrowseLayout.HEIGHT_PX), theme).also { it.onGlCreate() }
@@ -139,10 +151,11 @@ class AppScene(
 
         cylinder.onGlCreate()
         sphere.onGlCreate()
+        video = VideoTexture()
         video.createOnGlThread()
         reticle.onGlCreate()
         groundGrid.onGlCreate()
-        onVideoSurfaceReady(video.surface)
+        onVideoSurfaceCreated(video.surface, generation, oldSurface)
 
         stabilizer.reset()
         lastDispatched = null
@@ -357,6 +370,9 @@ class AppScene(
     }
 
     override fun onGlDestroy() {
+        val generation = videoGeneration
+        val surface = runCatching { video.surface }.getOrNull()
+        onVideoSurfaceDestroyed(surface, generation)
         listOfNotNull(serverList, browse, dock, settings, calibration, gamepadCal, hud, overlay).forEach { it.onGlDestroy() }
         serverList = null
         browse = null

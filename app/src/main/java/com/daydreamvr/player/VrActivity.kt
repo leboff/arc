@@ -26,6 +26,7 @@ import com.daydreamvr.player.input.toRawMotion
 import com.daydreamvr.player.perf.ThermalGovernor
 import com.daydreamvr.player.perf.ThermalMonitor
 import com.daydreamvr.player.render.AppScene
+import com.daydreamvr.player.render.VideoSurfaceCoordinator
 import com.daydreamvr.player.screens.CalibrationScreen
 import com.daydreamvr.player.screens.GamepadCalibration
 import com.daydreamvr.player.state.AppStateMachine
@@ -61,6 +62,7 @@ class VrActivity : ComponentActivity() {
     private lateinit var stateMachine: AppStateMachine
     private lateinit var effectRunner: com.daydreamvr.player.state.EffectRunner
     private lateinit var scene: AppScene
+    private lateinit var surfaceCoordinator: VideoSurfaceCoordinator
     private lateinit var brightnessController: com.daydreamvr.player.render.VrBrightnessController
     private val overlay = DebugOverlay()
     private val scrub = ScrubController()
@@ -128,6 +130,7 @@ class VrActivity : ComponentActivity() {
 
         stateMachine = AppStateMachine()
         brightnessController = com.daydreamvr.player.render.VrBrightnessController(window)
+        surfaceCoordinator = VideoSurfaceCoordinator(player)
         scene = AppScene(
             stateProvider = { stateMachine.state.value },
             snapshotProvider = { player.snapshot.value },
@@ -142,7 +145,8 @@ class VrActivity : ComponentActivity() {
                 }.getOrDefault(0)
             },
             thumbnailCacheProvider = { container.thumbnailCache },
-            onVideoSurfaceReady = { surface -> player.attach(surface) },
+            onVideoSurfaceCreated = surfaceCoordinator::onSurfaceCreated,
+            onVideoSurfaceDestroyed = surfaceCoordinator::onSurfaceDestroyed,
         ).also { s ->
             s.onListWindowMeasured = { w -> runOnUiThread { stateMachine.dispatch(Event.ListWindowMeasured(w)) } }
         }
@@ -396,8 +400,11 @@ class VrActivity : ComponentActivity() {
         brightnessController.restoreBrightness()
         getSystemService(InputManager::class.java)
             .unregisterInputDeviceListener(inputDeviceListener)
+        surfaceCoordinator.release()
         player.release()
-        renderer.onGlDestroy()
+        glSurfaceView.queueEvent {
+            renderer.onGlDestroy()
+        }
         super.onDestroy()
     }
 
