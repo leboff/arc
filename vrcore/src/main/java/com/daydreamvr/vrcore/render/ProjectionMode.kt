@@ -57,6 +57,21 @@ enum class ProjectionMode(
         name.startsWith("EQUIRECT") || this == EQUIRECT_360 -> ProjectionMapping.EQUIRECTANGULAR
         else -> ProjectionMapping.CYLINDER
     }
+
+    /**
+     * Computes the effective per-eye display aspect (width / height) on the
+     * virtual cinema screen. Full stereo frames contain unsqueezed eye images,
+     * while half stereo frames require the full frame aspect to undo squeezing.
+     */
+    fun effectiveDisplayAspect(videoAspect: Float): Float {
+        if (!videoAspect.isFinite() || videoAspect <= 0f) return 16f / 9f
+        return when (this) {
+            SBS_FULL -> videoAspect / 2f
+            TOPBOTTOM_FULL -> videoAspect * 2f
+            else -> videoAspect
+        }
+    }
+
     val fisheyeFovDegrees: Int? get() = if (mapping == ProjectionMapping.EQUIDISTANT_FISHEYE) name.substringAfter('_').substringBefore('_').toInt() else null
     val label: String get() = domeFov?.let {
         it.label + when (packing) {

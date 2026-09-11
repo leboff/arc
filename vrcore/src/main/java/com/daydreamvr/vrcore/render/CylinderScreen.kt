@@ -24,6 +24,13 @@ class CylinderScreen(
     var widthDegrees: Float = 60f,
 ) {
 
+    /** Values that determine the allocated cylinder mesh. */
+    data class GeometryKey(
+        val radiusM: Float,
+        val widthDegrees: Float,
+        val aspect: Float,
+    )
+
     /** Video display aspect (width / height), after pixel-aspect correction. */
     var aspect: Float = 16f / 9f
         private set
@@ -38,6 +45,18 @@ class CylinderScreen(
     /** Rebuilds the vertical extent from the media aspect, keeping [widthDegrees]. */
     fun setAspect(videoAspect: Float) {
         if (videoAspect.isFinite() && videoAspect > 0f) aspect = videoAspect
+    }
+
+    /** Updates all geometry inputs together when they form a valid screen shape. */
+    fun updateGeometry(radiusM: Float, widthDegrees: Float, aspect: Float) {
+        if (!radiusM.isFinite() || radiusM <= 0f ||
+            !widthDegrees.isFinite() || widthDegrees <= 0f ||
+            !aspect.isFinite() || aspect <= 0f
+        ) return
+
+        this.radiusM = radiusM
+        this.widthDegrees = widthDegrees
+        this.aspect = aspect
     }
 
     /**
@@ -86,6 +105,8 @@ class CylinderScreen(
 
     private var shader: Shader? = null
     private var mesh: Mesh? = null
+    private var activeKey: GeometryKey? = null
+    internal val currentGeometryKey: GeometryKey? get() = activeKey
     private val mvp = FloatArray(16)
     private val viewProj = FloatArray(16)
     private val model = FloatArray(16)
@@ -102,6 +123,7 @@ class CylinderScreen(
     fun rebuildMesh() {
         mesh?.release()
         mesh = buildMesh()
+        activeKey = GeometryKey(radiusM, widthDegrees, aspect)
     }
 
     fun draw(
@@ -112,6 +134,8 @@ class CylinderScreen(
         projection: ProjectionMode,
     ) {
         val program = shader ?: return
+        val key = GeometryKey(radiusM, widthDegrees, aspect)
+        if (mesh == null || activeKey != key) rebuildMesh()
         val geo = mesh ?: return
 
         Matrix.setIdentityM(model, 0)
@@ -155,6 +179,7 @@ class CylinderScreen(
         shader?.release()
         mesh = null
         shader = null
+        activeKey = null
     }
 
     companion object {

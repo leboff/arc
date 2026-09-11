@@ -6,6 +6,24 @@ import org.junit.Test
 class ProjectionModeTest {
 
     @Test
+    fun effectiveDisplayAspectAccountsForStereoPacking() {
+        val aspect = 32f / 9f
+
+        assertThat(ProjectionMode.FLAT.effectiveDisplayAspect(aspect)).isEqualTo(aspect)
+        assertThat(ProjectionMode.SBS_HALF.effectiveDisplayAspect(aspect)).isEqualTo(aspect)
+        assertThat(ProjectionMode.SBS_FULL.effectiveDisplayAspect(aspect)).isEqualTo(16f / 9f)
+        assertThat(ProjectionMode.TOPBOTTOM_HALF.effectiveDisplayAspect(aspect)).isEqualTo(aspect)
+        assertThat(ProjectionMode.TOPBOTTOM_FULL.effectiveDisplayAspect(aspect)).isEqualTo(64f / 9f)
+    }
+
+    @Test
+    fun effectiveDisplayAspectFallsBackForInvalidInput() {
+        for (invalid in listOf(0f, -1f, Float.NaN, Float.POSITIVE_INFINITY)) {
+            assertThat(ProjectionMode.SBS_FULL.effectiveDisplayAspect(invalid)).isEqualTo(16f / 9f)
+        }
+    }
+
+    @Test
     fun domePackingAndDetection() {
         for (token in listOf("SBS", "H-SBS", "HSBS")) {
             assertThat(ProjectionMode.detect("Beach_VR180_$token.mp4", 3840, 1920))

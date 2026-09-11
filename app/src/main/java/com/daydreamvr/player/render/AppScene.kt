@@ -205,9 +205,16 @@ class AppScene(
         if (state.screen == VrScreen.PLAYER) {
             if (snap.videoWidth > 0 && snap.videoHeight > 0) {
                 video.setBufferSize(snap.videoWidth, snap.videoHeight)
-                val aspect = snap.dimensions.displayAspect
-                if (aspect > 0f) cylinder.setAspect(aspect)
             }
+            val rawAspect = snap.dimensions.displayAspect
+            val effectiveAspect = state.playback.projection.effectiveDisplayAspect(
+                if (rawAspect > 0f) rawAspect else 16f / 9f,
+            )
+            cylinder.updateGeometry(
+                radiusM = state.settings.screenDistanceM,
+                widthDegrees = state.settings.screenWidthDegrees,
+                aspect = effectiveAspect,
+            )
             runCatching {
                 video.updateIfDirty()
             }.onFailure { t ->
@@ -330,8 +337,14 @@ class AppScene(
                 if (mode.isSpherical) {
                     sphere.domeFovDegrees = mode.domeFov?.degrees ?: com.daydreamvr.vrcore.render.DomeFov.DEG_180.degrees
                     sphere.draw(eye, viewM, projM, video, mode)
-                } else {
-                    cylinder.draw(eye, viewM, projM, video, mode)
+            } else {
+                val rawAspect = snapshotProvider().dimensions.displayAspect
+                cylinder.updateGeometry(
+                    radiusM = state.settings.screenDistanceM,
+                    widthDegrees = state.settings.screenWidthDegrees,
+                    aspect = mode.effectiveDisplayAspect(if (rawAspect > 0f) rawAspect else 16f / 9f),
+                )
+                cylinder.draw(eye, viewM, projM, video, mode)
                 }
                 if (state.hud.visible) hud?.drawGl(eye, viewM, projM)
             }

@@ -15,6 +15,46 @@ class CylinderScreenTest {
     }
 
     @Test
+    fun updateGeometryUpdatesAllInputsAndRejectsInvalidValues() {
+        val screen = CylinderScreen()
+
+        screen.updateGeometry(radiusM = 6f, widthDegrees = 90f, aspect = 2f)
+
+        assertThat(screen.radiusM).isEqualTo(6f)
+        assertThat(screen.widthDegrees).isEqualTo(90f)
+        assertThat(screen.aspect).isEqualTo(2f)
+
+        screen.updateGeometry(radiusM = Float.NaN, widthDegrees = 45f, aspect = 1f)
+        screen.updateGeometry(radiusM = 3f, widthDegrees = 0f, aspect = 1f)
+        screen.updateGeometry(radiusM = 3f, widthDegrees = 45f, aspect = Float.POSITIVE_INFINITY)
+
+        assertThat(screen.radiusM).isEqualTo(6f)
+        assertThat(screen.widthDegrees).isEqualTo(90f)
+        assertThat(screen.aspect).isEqualTo(2f)
+    }
+
+    @Test
+    fun geometryKeyDistinguishesEachGeometryInput() {
+        val key = CylinderScreen.GeometryKey(4f, 60f, 16f / 9f)
+
+        assertThat(key).isEqualTo(CylinderScreen.GeometryKey(4f, 60f, 16f / 9f))
+        assertThat(key).isNotEqualTo(CylinderScreen.GeometryKey(5f, 60f, 16f / 9f))
+        assertThat(key).isNotEqualTo(CylinderScreen.GeometryKey(4f, 61f, 16f / 9f))
+        assertThat(key).isNotEqualTo(CylinderScreen.GeometryKey(4f, 60f, 2f))
+    }
+
+    @Test
+    fun verticesReflectRadiusAndArcWidthChanges() {
+        val narrow = CylinderScreen(radiusM = 2f, widthDegrees = 60f).buildVertices(2, 1)
+        val wide = CylinderScreen(radiusM = 4f, widthDegrees = 120f).buildVertices(2, 1)
+
+        // The first vertex lies on the left edge. Increasing radius doubles its
+        // x/z coordinates; increasing the arc angle moves that edge farther out.
+        assertThat(kotlin.math.abs(wide[0])).isGreaterThan(kotlin.math.abs(narrow[0]) * 2f - 1e-3f)
+        assertThat(kotlin.math.abs(wide[2])).isLessThan(kotlin.math.abs(narrow[2]) * 2f)
+    }
+
+    @Test
     fun everyVertexLiesOnTheCylinderRadius() {
         val screen = CylinderScreen(radiusM = 4f, widthDegrees = 90f)
         screen.setAspect(1.85f)
