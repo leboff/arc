@@ -41,6 +41,9 @@ class EffectRunner(
     private val onRecenter: () -> Unit = {},
     private val onApplySettings: (Settings) -> Unit = {},
     private val onQuit: () -> Unit = {},
+    var localMediaLoader: suspend () -> Event = {
+        Event.LocalMediaFailed("Local media not configured")
+    },
 ) {
 
     /** Wires the server-list and player-snapshot flows into [dispatch]. Call once. */
@@ -89,12 +92,15 @@ class EffectRunner(
         }
     }
 
-    /** Bridged to a real `LocalMediaRepository` in M8; a no-op keeps the reducer contract intact. */
-    var localMediaLoader: (suspend () -> Event)? = null
-
     private fun loadLocalMedia() {
-        val loader = localMediaLoader ?: return
-        scope.launch { runCatching { loader() }.onSuccess(dispatch) }
+        scope.launch {
+            runCatching { localMediaLoader() }.fold(
+                onSuccess = { event -> dispatch(event) },
+                onFailure = { err ->
+                    dispatch(Event.LocalMediaFailed(err.message ?: "Failed to read local media"))
+                },
+            )
+        }
     }
 
     private fun browseNode(effect: Effect.BrowseNode) {

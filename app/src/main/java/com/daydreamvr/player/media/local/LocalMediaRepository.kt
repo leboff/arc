@@ -33,7 +33,7 @@ data class LocalLibrary(
 class LocalMediaRepository(
     context: Context,
     private val scope: CoroutineScope,
-    private val onChanged: () -> Unit = {},
+    var onChanged: () -> Unit = {},
 ) {
     private val appContext = context.applicationContext
     private val resolver: ContentResolver = appContext.contentResolver
@@ -131,12 +131,18 @@ class LocalMediaRepository(
                 }, DEBOUNCE_MS)
             }
         }
-        resolver.registerContentObserver(collection, true, obs)
-        observer = obs
+        runCatching {
+            resolver.registerContentObserver(collection, true, obs)
+            observer = obs
+        }.onFailure {
+            android.util.Log.w("LocalMediaRepository", "Failed to register content observer", it)
+        }
     }
 
     fun stopWatching() {
-        observer?.let { resolver.unregisterContentObserver(it) }
+        observer?.let { obs ->
+            runCatching { resolver.unregisterContentObserver(obs) }
+        }
         observer = null
         pendingSignal?.cancel()
     }

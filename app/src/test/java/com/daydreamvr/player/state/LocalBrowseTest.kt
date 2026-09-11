@@ -52,4 +52,27 @@ class LocalBrowseTest {
         d.send(Event.LocalMediaFailed("disk on fire"))
         assertThat(d.state.browse.top!!.error).isEqualTo("disk on fire")
     }
+
+    @Test
+    fun permissionChangeFromDeniedToGrantedTriggersLoadLocalMediaIfViewingLocalSource() {
+        val d = driver(MediaPermission.Grant.DENIED)
+        d.send(Event.Ui(UiIntent.SelectSource(MediaSource.Local.id)))
+        assertThat(d.state.browse.top!!.error).isNotNull()
+
+        d.send(Event.LocalPermissionChanged(MediaPermission.Grant.FULL))
+
+        assertThat(d.state.browse.top!!.loading).isTrue()
+        assertThat(d.state.browse.top!!.error).isNull()
+        assertThat(d.stepEffects).containsExactly(Effect.LoadLocalMedia)
+    }
+
+    @Test
+    fun localMediaChangedTriggersLoadLocalMediaIfViewingLocalSource() {
+        val d = driver(MediaPermission.Grant.FULL)
+        d.send(Event.Ui(UiIntent.SelectSource(MediaSource.Local.id)))
+
+        d.send(Event.LocalMediaChanged)
+
+        assertThat(d.stepEffects).containsExactly(Effect.LoadLocalMedia)
+    }
 }

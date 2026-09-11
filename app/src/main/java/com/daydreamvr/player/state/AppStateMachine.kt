@@ -84,8 +84,19 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             is Event.Ui -> reduceUi(state, event.intent)
             is Event.LocalMediaLoaded -> reduceLocalMediaLoaded(state, event)
             is Event.LocalMediaFailed -> reduceLocalMediaFailed(state, event)
-            is Event.LocalPermissionChanged ->
-                state.copy(sources = state.sources.copy(localPermission = event.grant)) to noFx()
+            is Event.LocalPermissionChanged -> {
+                val wasDenied = state.sources.localPermission == MediaPermission.Grant.DENIED
+                val isNowGranted = event.grant != MediaPermission.Grant.DENIED
+                val nextState = state.copy(sources = state.sources.copy(localPermission = event.grant))
+                val top = nextState.browse.top
+                if (wasDenied && isNowGranted && nextState.sources.selectedId == MediaSource.Local.id && top != null) {
+                    nextState.copy(
+                        browse = nextState.browse.replaceTop(top.copy(loading = true, error = null)),
+                    ) to listOf(Effect.LoadLocalMedia)
+                } else {
+                    nextState to noFx()
+                }
+            }
             is Event.LocalMediaChanged ->
                 if (state.sources.selectedId == MediaSource.Local.id) state to listOf(Effect.LoadLocalMedia)
                 else state to noFx()

@@ -163,6 +163,19 @@ class VrActivity : ComponentActivity() {
             },
             onApplySettings = ::applySettings,
             onQuit = { finish() },
+            localMediaLoader = {
+                container.localMediaRepository.load().fold(
+                    onSuccess = { lib -> Event.LocalMediaLoaded(lib.folders, lib.byFolder) },
+                    onFailure = { err -> Event.LocalMediaFailed(err.message ?: "Failed to scan device videos") },
+                )
+            },
+        )
+
+        container.localMediaRepository.onChanged = {
+            runOnUiThread { stateMachine.dispatch(Event.LocalMediaChanged) }
+        }
+        stateMachine.dispatch(
+            Event.LocalPermissionChanged(com.daydreamvr.player.media.local.MediaPermission.status(this)),
         )
 
         renderer = VrRenderer(
@@ -353,6 +366,12 @@ class VrActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        val container = (application as PlayerApp).container
+        val currentGrant = com.daydreamvr.player.media.local.MediaPermission.status(this)
+        stateMachine.dispatch(Event.LocalPermissionChanged(currentGrant))
+        if (currentGrant != com.daydreamvr.player.media.local.MediaPermission.Grant.DENIED) {
+            container.localMediaRepository.startWatching()
+        }
         brightnessController.applyVrBrightness()
         headTracker.start()
         thermalMonitor.start()
@@ -362,6 +381,7 @@ class VrActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
+        (application as PlayerApp).container.localMediaRepository.stopWatching()
         brightnessController.restoreBrightness()
         Choreographer.getInstance().removeFrameCallback(frameCallback)
         decoder.stopYaw()
@@ -372,6 +392,7 @@ class VrActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        (application as PlayerApp).container.localMediaRepository.stopWatching()
         brightnessController.restoreBrightness()
         getSystemService(InputManager::class.java)
             .unregisterInputDeviceListener(inputDeviceListener)
