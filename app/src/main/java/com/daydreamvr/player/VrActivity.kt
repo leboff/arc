@@ -390,6 +390,7 @@ class VrActivity : ComponentActivity() {
         Choreographer.getInstance().removeFrameCallback(frameCallback)
         decoder.stopYaw()
         player.pause()
+        effectRunner.flushResume()
         glSurfaceView.onPause()
         thermalMonitor.stop()
         headTracker.stop()
@@ -401,6 +402,7 @@ class VrActivity : ComponentActivity() {
         getSystemService(InputManager::class.java)
             .unregisterInputDeviceListener(inputDeviceListener)
         surfaceCoordinator.release()
+        effectRunner.flushResume()
         player.release()
         glSurfaceView.queueEvent {
             renderer.onGlDestroy()

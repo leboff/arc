@@ -169,8 +169,20 @@ class PlaybackEngineRouter(
         val request = currentRequest ?: return
         switching = true
         mirrorJob?.cancel()
-        val resumeAt = maxOf(from.positionMs, request.startAtMs)
+        val resumeAt = if (from.positionMs > 0L) from.positionMs else request.startAtMs
         startOn(to, request, resumeAt)
+        if (from.speed != 1f) {
+            active.setSpeed(from.speed)
+        }
+        from.audioTracks.firstOrNull { it.isSelected }?.id?.let {
+            active.selectAudioTrack(it)
+        }
+        from.subtitleTracks.firstOrNull { it.isSelected }?.id?.let {
+            active.selectSubtitleTrack(it)
+        }
+        if (!from.isPlaying && from.state != PlaybackState.IDLE) {
+            active.pause()
+        }
         switching = false
     }
 }

@@ -85,7 +85,7 @@ class VlcVideoPlayer(
 
     override fun play(request: PlayRequest) {
         this.request = request
-        val startAt = request.startAtMs.coerceAtLeast(resumeStartFor(request))
+        val startAt = request.startAtMs
         val resource = request.rankedResources.firstOrNull()
         if (resource == null) {
             fail("No playable source for \"${request.title}\".")
@@ -104,12 +104,17 @@ class VlcVideoPlayer(
         state = PlaybackState.BUFFERING
         positionMs = startAt
         durationMs = 0L
+        isPlayingNow = false
         mp.play()
 
-        _snapshot.value = _snapshot.value.copy(
+        _snapshot.value = PlaybackSnapshot(
             itemKey = request.itemKey,
             title = request.title,
-            failure = null,
+            state = PlaybackState.BUFFERING,
+            isBuffering = true,
+            positionMs = startAt,
+            durationMs = 0L,
+            bufferedMs = 0L,
             resourceIndex = 0,
         )
         main.removeCallbacks(ticker)
@@ -170,6 +175,7 @@ class VlcVideoPlayer(
 
     override fun release() {
         persistResume()
+        main.removeCallbacks(ticker)
         main.removeCallbacksAndMessages(null)
         mediaPlayer?.let { mp ->
             mp.setEventListener(null)
@@ -300,11 +306,6 @@ class VlcVideoPlayer(
             failure = PlaybackFailure.Unknown(message),
         )
         onFatalError(message)
-    }
-
-    private fun resumeStartFor(req: PlayRequest): Long {
-        val entry = resumeStore.get(req.itemKey) ?: return 0L
-        return if (entry.isFinished) 0L else entry.positionMs
     }
 
     private fun persistResume() {

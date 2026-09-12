@@ -3,6 +3,7 @@ package com.daydreamvr.player.state
 import com.daydreamvr.player.data.ServerStore
 import com.daydreamvr.player.data.SettingsStore
 import com.daydreamvr.playback.PlayRequest
+import com.daydreamvr.playback.ResumeEntry
 import com.daydreamvr.playback.ResumeStore
 import com.daydreamvr.playback.VideoPlayer
 import com.daydreamvr.player.media.MediaSource
@@ -17,6 +18,7 @@ import com.daydreamvr.upnp.cds.ResourceRanker
 import com.daydreamvr.upnp.model.MediaServer
 import com.daydreamvr.vrcore.render.ProjectionMode
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
@@ -38,6 +40,7 @@ class EffectRunner(
     private val settingsStore: SettingsStore,
     private val scope: CoroutineScope,
     private val dispatch: (Event) -> Unit,
+    private val saveResume: suspend (List<ResumeEntry>) -> Unit = settingsStore::saveResume,
     private val onRecenter: () -> Unit = {},
     private val onApplySettings: (Settings) -> Unit = {},
     private val onQuit: () -> Unit = {},
@@ -45,6 +48,8 @@ class EffectRunner(
         Event.LocalMediaFailed("Local media not configured")
     },
 ) {
+
+    private var lastResumeSaveMs = 0L
 
     /** Wires the server-list and player-snapshot flows into [dispatch]. Call once. */
     fun start() {
@@ -55,14 +60,27 @@ class EffectRunner(
             player.snapshot.collect { snap ->
                 dispatch(Event.PlayerStateChanged(snap))
                 if (snap.durationMs > 0L) {
+                    val key = snap.itemKey ?: return@collect
                     resumeStore.put(
-                        snap.itemKey ?: return@collect,
+                        key,
                         snap.positionMs,
                         snap.durationMs,
                         System.currentTimeMillis(),
                     )
+                    val now = System.currentTimeMillis()
+                    if (now - lastResumeSaveMs >= RESUME_SAVE_INTERVAL_MS) {
+                        lastResumeSaveMs = now
+                        flushResume()
+                    }
                 }
             }
+        }
+    }
+
+    fun flushResume() {
+        val entries = resumeStore.all()
+        scope.launch(Dispatchers.IO) {
+            runCatching { saveResume(entries) }
         }
     }
 
@@ -251,7 +269,7 @@ class EffectRunner(
 
     private fun stopPlayback() {
         player.stop()
-        scope.launch { runCatching { settingsStore.saveResume(resumeStore.all()) } }
+        flushResume()
     }
 
     // ---- settings -------------------------------------------------------
@@ -263,7 +281,7 @@ class EffectRunner(
 
     private fun quit() {
         player.stop()
-        scope.launch { runCatching { settingsStore.saveResume(resumeStore.all()) } }
+        flushResume()
         onQuit()
     }
 
@@ -273,5 +291,6 @@ class EffectRunner(
     companion object {
         /** Below this a resume prompt is not worth the interruption (~15 s). */
         const val RESUME_PROMPT_MIN_MS = 15_000L
+        private const val RESUME_SAVE_INTERVAL_MS = 10_000L
     }
 }

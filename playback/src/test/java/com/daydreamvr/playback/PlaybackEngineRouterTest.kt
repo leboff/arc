@@ -130,6 +130,28 @@ class PlaybackEngineRouterTest {
         assertThat(fatalErrors).containsExactly("Generic device decoder crash")
     }
 
+    @Test
+    fun failoverPreservesSeekBackwardPositionAndState() {
+        val request = sampleRequest.copy(startAtMs = 30_000L)
+        router.play(request)
+
+        media3.emitSnapshot(
+            PlaybackSnapshot(
+                itemKey = "item1",
+                title = "Test Video",
+                state = PlaybackState.READY,
+                isPlaying = false,
+                positionMs = 10_000L,
+                speed = 1.5f,
+                failure = PlaybackFailure.UnsupportedContainer("wmv3"),
+            ),
+        )
+
+        assertThat(vlc.lastPlayRequest?.startAtMs).isEqualTo(10_000L)
+        assertThat(vlc.lastSpeed).isEqualTo(1.5f)
+        assertThat(vlc.isPaused).isTrue()
+    }
+
     private class FakeVideoPlayer(
         initialSnapshot: PlaybackSnapshot = PlaybackSnapshot.EMPTY
     ) : VideoPlayer {
@@ -139,6 +161,8 @@ class PlaybackEngineRouterTest {
         var lastPlayRequest: PlayRequest? = null
         var isStopped = false
         var isReleased = false
+        var isPaused = false
+        var lastSpeed: Float? = null
 
         override fun attach(surface: android.view.Surface) { attachedSurface = surface }
         override fun detach() { attachedSurface = null }
@@ -154,11 +178,11 @@ class PlaybackEngineRouterTest {
             )
         }
         override fun playPause() {}
-        override fun pause() {}
+        override fun pause() { isPaused = true }
         override fun stop() { isStopped = true }
         override fun seekBy(deltaMs: Long) {}
         override fun seekTo(positionMs: Long, exact: Boolean) {}
-        override fun setSpeed(speed: Float) {}
+        override fun setSpeed(speed: Float) { lastSpeed = speed }
         override fun selectAudioTrack(id: String?) {}
         override fun selectSubtitleTrack(id: String?) {}
         override fun release() { isReleased = true }

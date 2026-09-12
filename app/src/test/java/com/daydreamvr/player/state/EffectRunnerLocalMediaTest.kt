@@ -6,6 +6,8 @@ import android.view.Surface
 import com.daydreamvr.playback.InMemoryResumeStore
 import com.daydreamvr.playback.PlayRequest
 import com.daydreamvr.playback.PlaybackSnapshot
+import com.daydreamvr.playback.ResumeEntry
+import com.daydreamvr.playback.ResumeStore
 import com.daydreamvr.playback.VideoPlayer
 import com.daydreamvr.player.data.ServerStore
 import com.daydreamvr.player.data.SettingsStore
@@ -22,6 +24,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeout
 import org.junit.Test
 import kotlin.time.Duration
 
@@ -68,8 +72,30 @@ class EffectRunnerLocalMediaTest {
         assertThat(dispatched).containsExactly(failure)
     }
 
+    @Test
+    fun flushResumePersistsAllCurrentEntries() = runTest {
+        val entries = CompletableDeferred<List<ResumeEntry>>()
+        val resumeStore = InMemoryResumeStore().apply {
+            put("movie", 12_000L, 60_000L, 123L)
+        }
+        val runner = runner(
+            dispatched = mutableListOf(),
+            loader = { error("unused") },
+            resumeStore = resumeStore,
+            saveResume = { entries.complete(it) },
+        )
+
+        runner.flushResume()
+
+        assertThat(withTimeout(5_000L) { entries.await() }).containsExactly(
+            ResumeEntry("movie", 12_000L, 60_000L, null),
+        )
+    }
+
     private fun TestScope.runner(
         dispatched: MutableList<Event>,
+        resumeStore: ResumeStore = InMemoryResumeStore(),
+        saveResume: suspend (List<ResumeEntry>) -> Unit = {},
         loader: suspend () -> Event,
     ) = EffectRunner(
         directory = object : MediaServerDirectory {
@@ -98,11 +124,12 @@ class EffectRunnerLocalMediaTest {
             override fun release() = Unit
         },
         decoderCaps = { DecoderCaps(0, 0, emptySet()) },
-        resumeStore = InMemoryResumeStore(),
+        resumeStore = resumeStore,
         serverStore = ServerStore(TestContext()),
         settingsStore = SettingsStore(TestContext()),
         scope = this,
         dispatch = dispatched::add,
+        saveResume = saveResume,
         localMediaLoader = loader,
     )
 

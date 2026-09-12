@@ -58,6 +58,7 @@ class ExoVideoPlayer(
     private var retryAttempt = 0
     private var refreshedOnce = false
     private var lastVideoCodec: String? = null
+    private var pendingRetry: Runnable? = null
 
     private val listener = PlayerListener()
 
@@ -81,10 +82,21 @@ class ExoVideoPlayer(
     }
 
     override fun play(request: PlayRequest) {
+        cancelPendingRetry()
         this.request = request
         resourceIndex = 0
         retryAttempt = 0
         refreshedOnce = false
+        _snapshot.value = PlaybackSnapshot(
+            itemKey = request.itemKey,
+            title = request.title,
+            state = PlaybackState.BUFFERING,
+            isBuffering = true,
+            positionMs = request.startAtMs,
+            durationMs = 0L,
+            bufferedMs = 0L,
+            resourceIndex = 0,
+        )
         if (forcedSoftwareAudio) {
             val surface = pendingSurface
             player?.removeListener(listener)
@@ -94,7 +106,7 @@ class ExoVideoPlayer(
             pendingSurface = surface
         }
         ensurePlayer()
-        loadCurrentResource(request.startAtMs.coerceAtLeast(resumeStartFor(request)))
+        loadCurrentResource(request.startAtMs)
     }
 
     override fun playPause() {
@@ -103,11 +115,14 @@ class ExoVideoPlayer(
     }
 
     override fun pause() {
+        cancelPendingRetry()
         player?.playWhenReady = false
         persistResume()
     }
 
     override fun stop() {
+        cancelPendingRetry()
+        main.removeCallbacks(ticker)
         persistResume()
         player?.stop()
         request = null
@@ -136,6 +151,7 @@ class ExoVideoPlayer(
     override fun selectSubtitleTrack(id: String?) = applyOverride(C.TRACK_TYPE_TEXT, id)
 
     override fun release() {
+        cancelPendingRetry()
         persistResume()
         main.removeCallbacksAndMessages(null)
         player?.removeListener(listener)
@@ -231,6 +247,15 @@ class ExoVideoPlayer(
 
     private fun handleError(error: PlaybackException) {
         val failure = classify(error)
+        if (failure is PlaybackFailure.UnsupportedContainer ||
+            failure is PlaybackFailure.MalformedContainer ||
+            (failure is PlaybackFailure.Unknown &&
+                failure.detail.contains("container not supported", ignoreCase = true))
+        ) {
+            cancelPendingRetry()
+            _snapshot.value = _snapshot.value.copy(failure = failure)
+            return
+        }
         val remaining = (request?.rankedResources?.size ?: 0) - resourceIndex - 1
         // A stand-alone ExoVideoPlayer cannot switch engines; tell the policy both
         // engines are spent so it falls back down the ranked-resource ladder
@@ -239,10 +264,16 @@ class ExoVideoPlayer(
         val enginesTried = setOf(PlaybackEngine.MEDIA3, PlaybackEngine.VLC)
         when (val action = FallbackPolicy.decide(failure, retryAttempt, remaining, enginesTried)) {
             is FallbackAction.RetrySameAfter -> {
+                cancelPendingRetry()
                 retryAttempt++
                 val at = player?.currentPosition ?: 0L
-                _snapshot.value = _snapshot.value.copy(isBuffering = true, failure = failure)
-                main.postDelayed({ loadCurrentResource(at) }, action.delayMs)
+                _snapshot.value = _snapshot.value.copy(isBuffering = true, failure = null)
+                val runnable = Runnable {
+                    pendingRetry = null
+                    loadCurrentResource(at)
+                }
+                pendingRetry = runnable
+                main.postDelayed(runnable, action.delayMs)
             }
 
             FallbackAction.NextResource -> {
@@ -254,9 +285,17 @@ class ExoVideoPlayer(
 
             FallbackAction.RefreshUrlFromServer -> {
                 // Phase 5 wires the actual re-Browse; here we retry the same URL once.
+                cancelPendingRetry()
                 refreshedOnce = true
                 retryAttempt++
-                main.postDelayed({ loadCurrentResource(player?.currentPosition ?: 0L) }, 500L)
+                val at = player?.currentPosition ?: 0L
+                _snapshot.value = _snapshot.value.copy(isBuffering = true, failure = null)
+                val runnable = Runnable {
+                    pendingRetry = null
+                    loadCurrentResource(at)
+                }
+                pendingRetry = runnable
+                main.postDelayed(runnable, 500L)
             }
 
             FallbackAction.ForceSoftwareAudio -> {
@@ -383,9 +422,9 @@ class ExoVideoPlayer(
         else -> PlaybackState.IDLE
     }
 
-    private fun resumeStartFor(req: PlayRequest): Long {
-        val entry = resumeStore.get(req.itemKey) ?: return 0L
-        return if (entry.isFinished) 0L else entry.positionMs
+    private fun cancelPendingRetry() {
+        pendingRetry?.let { main.removeCallbacks(it) }
+        pendingRetry = null
     }
 
     private fun persistResume() {
