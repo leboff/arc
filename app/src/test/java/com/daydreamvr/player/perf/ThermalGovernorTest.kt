@@ -21,6 +21,18 @@ class ThermalGovernorTest {
     }
 
     @Test
+    fun supersamplingBumpsBaseQualityWhenCool() {
+        assertThat(ThermalGovernor.qualityFor(THERMAL_NONE, batteryPercent = 90, supersampling = true).renderScale)
+            .isWithin(1e-4f).of(1.30f)
+        assertThat(ThermalGovernor.qualityFor(THERMAL_LIGHT, batteryPercent = 90, supersampling = true).renderScale)
+            .isWithin(1e-4f).of(1.30f)
+        assertThat(ThermalGovernor.qualityFor(THERMAL_MODERATE, batteryPercent = 90, supersampling = true).renderScale)
+            .isWithin(1e-4f).of(1.0f)
+        assertThat(ThermalGovernor.qualityFor(THERMAL_NONE, batteryPercent = 10, supersampling = true).renderScale)
+            .isAtMost(0.85f)
+    }
+
+    @Test
     fun moderateDropsSupersampleAndMsaaButKeepsChromatic() {
         val q = ThermalGovernor.qualityFor(THERMAL_MODERATE, batteryPercent = 90)
         assertThat(q.renderScale).isWithin(1e-4f).of(1.0f)

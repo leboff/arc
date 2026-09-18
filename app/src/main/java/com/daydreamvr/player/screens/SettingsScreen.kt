@@ -69,6 +69,7 @@ class SettingsScreen(panel: PanelSurface, theme: Theme) :
         "Lens k2" -> String.format(Locale.US, "%.2f", s.lensK2)
         "Divider width" -> "${s.dividerPx} px"
         "Distortion correction" -> onOff(s.distortionCorrection)
+        "Supersampling" -> if (s.supersampling) "1.3x (High)" else "1.15x (Standard)"
         "Gamepad buttons" -> if (s.gamepadAbSwapped) "A/B swapped" else "Standard"
         "Motion prediction" -> onOff(s.predictionEnabled)
         "Neck model" -> onOff(s.neckModelEnabled)

@@ -22,6 +22,16 @@ class SettingsMigrationTest {
     }
 
     @Test
+    fun supersamplingRoundTripsThroughMigration() {
+        val raw = json.encodeToString(SettingsBlobV2(supersampling = true))
+
+        val outcome = SettingsMigration.migrate(raw)
+
+        assertThat(outcome.blob.supersampling).isTrue()
+        assertThat(SettingsMigration.migrate(json.encodeToString(outcome.blob)).blob.supersampling).isTrue()
+    }
+
+    @Test
     fun legacyDefaultsAreMigratedWithArchivedTupleAndRecalibrationFlag() {
         // Exact legacy V1 JSON with default fields
         val legacyJson = """{

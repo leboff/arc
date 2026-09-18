@@ -24,6 +24,7 @@ data class SettingsBlobV2(
     val screenWidthDegrees: Float = 60f,
     val dividerPx: Int = 8,
     val distortionCorrection: Boolean = true,
+    val supersampling: Boolean = false,
     val gamepadAbSwapped: Boolean = false,
     val subnetPrefix: String? = null,
     val viewerOverrides: Map<String, ViewerOverride> = emptyMap(),
@@ -129,6 +130,8 @@ object SettingsMigration {
 
         val distortionCorrection = root["distortionCorrection"]?.jsonPrimitive?.booleanOrNull
             ?: legacy?.distortionCorrection ?: true
+        val supersampling = root["supersampling"]?.jsonPrimitive?.booleanOrNull
+            ?: legacy?.supersampling ?: false
 
         val prediction = root["predictionEnabled"]?.jsonPrimitive?.booleanOrNull ?: legacy?.predictionEnabled ?: true
         val neckModel = root["neckModelEnabled"]?.jsonPrimitive?.booleanOrNull ?: legacy?.neckModelEnabled ?: true
@@ -160,6 +163,7 @@ object SettingsMigration {
             screenWidthDegrees = screenWidthDeg,
             dividerPx = dividerPx,
             distortionCorrection = distortionCorrection,
+            supersampling = supersampling,
             gamepadAbSwapped = gamepadAb,
             viewerOverrides = emptyMap(), // Legacy clip coefficients are NEVER loaded into physical overrides (§5.4)
             displayCalibrations = emptyMap(),

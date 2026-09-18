@@ -986,6 +986,7 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                 "Lens k2" -> s.copy(lensK2 = roundHundredth(s.lensK2 + dir * 0.01f).coerceIn(0f, 1f))
                 "Divider width" -> s.copy(dividerPx = (s.dividerPx + dir * 2).coerceIn(0, 40))
                 "Distortion correction" -> s.copy(distortionCorrection = !s.distortionCorrection)
+                "Supersampling" -> s.copy(supersampling = !s.supersampling)
                 "Gamepad buttons" -> s.copy(gamepadAbSwapped = !s.gamepadAbSwapped)
                 "Motion prediction" -> s.copy(predictionEnabled = !s.predictionEnabled)
                 "Neck model" -> s.copy(neckModelEnabled = !s.neckModelEnabled)

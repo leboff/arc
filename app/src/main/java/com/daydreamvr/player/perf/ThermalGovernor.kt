@@ -37,9 +37,14 @@ object ThermalGovernor {
      * The quality for a given thermal status (`THERMAL_*`) and battery percentage
      * (0–100; pass a negative value when unknown to skip the battery rule).
      */
-    fun qualityFor(thermalStatus: Int, batteryPercent: Int): Quality {
+    fun qualityFor(
+        thermalStatus: Int,
+        batteryPercent: Int,
+        supersampling: Boolean = false,
+    ): Quality {
+        val baseScale = if (supersampling) 1.30f else 1.15f
         val thermal = when (thermalStatus.coerceIn(THERMAL_NONE, THERMAL_SHUTDOWN)) {
-            THERMAL_NONE, THERMAL_LIGHT -> Quality(renderScale = 1.15f, msaa = 4, chromatic = true)
+            THERMAL_NONE, THERMAL_LIGHT -> Quality(renderScale = baseScale, msaa = 4, chromatic = true)
             THERMAL_MODERATE -> Quality(renderScale = 1.0f, msaa = 0, chromatic = true)
             THERMAL_SEVERE -> Quality(renderScale = 0.85f, msaa = 0, chromatic = false)
             else -> Quality(renderScale = 0.7f, msaa = 0, chromatic = false)
@@ -67,14 +72,24 @@ class ThermalMonitor(
     private val appContext = context.applicationContext
     private val power = appContext.getSystemService(PowerManager::class.java)
     private val battery = appContext.getSystemService(BatteryManager::class.java)
+    private var isSupersampling = false
+    private var lastThermalStatus = ThermalGovernor.THERMAL_NONE
 
     private val listener = PowerManager.OnThermalStatusChangedListener { status ->
-        onQuality(ThermalGovernor.qualityFor(status, batteryPercent()))
+        lastThermalStatus = status
+        onQuality(ThermalGovernor.qualityFor(status, batteryPercent(), isSupersampling))
+    }
+
+    fun setSupersampling(enabled: Boolean) {
+        if (isSupersampling == enabled) return
+        isSupersampling = enabled
+        onQuality(ThermalGovernor.qualityFor(lastThermalStatus, batteryPercent(), isSupersampling))
     }
 
     fun start() {
         power?.addThermalStatusListener(listener)
-        onQuality(ThermalGovernor.qualityFor(power?.currentThermalStatus ?: 0, batteryPercent()))
+        lastThermalStatus = power?.currentThermalStatus ?: ThermalGovernor.THERMAL_NONE
+        onQuality(ThermalGovernor.qualityFor(lastThermalStatus, batteryPercent(), isSupersampling))
     }
 
     fun stop() {

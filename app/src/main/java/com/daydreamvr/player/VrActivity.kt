@@ -266,6 +266,7 @@ class VrActivity : ComponentActivity() {
         container.deviceProfile = OpticsSettingsResolver.resolveDeviceProfile(settings)
         renderer.ipdM = settings.ipdMm / 1000f
         renderer.distortionEnabled = settings.distortionCorrection
+        thermalMonitor.setSupersampling(settings.supersampling)
 
         decoder.bindings = GamepadCalibration.bindingsFor(container.inputBindings, settings.gamepadAbSwapped)
     }

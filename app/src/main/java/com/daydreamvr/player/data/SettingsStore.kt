@@ -47,6 +47,7 @@ class SettingsStore(context: Context) {
         val lensK2: Float = 0.42f,
         val dividerPx: Int = 8,
         val distortionCorrection: Boolean = true,
+        val supersampling: Boolean = false,
         val gamepadAbSwapped: Boolean = false,
         val subnetPrefix: String? = null,
     )
@@ -100,6 +101,7 @@ class SettingsStore(context: Context) {
                 screenWidthDegrees = settings.screenWidthDegrees,
                 dividerPx = settings.dividerPx,
                 distortionCorrection = settings.distortionCorrection,
+                supersampling = settings.supersampling,
                 gamepadAbSwapped = settings.gamepadAbSwapped,
                 subnetPrefix = settings.subnetPrefix,
                 viewerOverrides = updatedOverrides,
@@ -154,6 +156,7 @@ class SettingsStore(context: Context) {
             lensK2 = override?.lensK2 ?: base.distortionK.getOrElse(1) { 0f },
             dividerPx = dividerPx,
             distortionCorrection = distortionCorrection,
+            supersampling = supersampling,
             gamepadAbSwapped = gamepadAbSwapped,
             subnetPrefix = subnetPrefix,
         )

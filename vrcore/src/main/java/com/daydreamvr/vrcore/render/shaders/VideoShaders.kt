@@ -50,8 +50,8 @@ uniform mat4 uMvp;
 uniform mat4 uStMatrix;
 uniform vec4 uUvRect;      // uOff, vOff, uScale, vScale (image space, v=0 at top)
 
-out vec2 vEyeUv;
-out vec2 vUv;
+out highp vec2 vEyeUv;
+out highp vec2 vUv;
 
 void main() {
     vec2 packed = aUv * uUvRect.zw + uUvRect.xy;
@@ -63,12 +63,12 @@ void main() {
 
     const val FRAGMENT = """#version 300 es
 #extension GL_OES_EGL_image_external_essl3 : require
-precision mediump float;
+precision highp float;
 
 uniform samplerExternalOES uTexture;
 
-in vec2 vEyeUv;
-in vec2 vUv;
+in highp vec2 vEyeUv;
+in highp vec2 vUv;
 out vec4 fragColor;
 
 void main() {

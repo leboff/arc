@@ -256,6 +256,7 @@ data class Settings(
     val lensK2: Float = 0.42f,
     val dividerPx: Int = 8,
     val distortionCorrection: Boolean = true,
+    val supersampling: Boolean = false,
     /** 8BitDo-in-Switch-mode and friends: swap A/B (and X/Y). Persisted so it survives a reconnect. */
     val gamepadAbSwapped: Boolean = false,
     val subnetPrefix: String? = null,
@@ -272,6 +273,7 @@ data class Settings(
             "Lens k2",
             "Divider width",
             "Distortion correction",
+            "Supersampling",
             "Gamepad buttons",
             "Motion prediction",
             "Neck model",
