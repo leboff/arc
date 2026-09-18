@@ -60,6 +60,9 @@ sealed interface Event {
     /** Persisted settings were read at startup and should replace the defaults. */
     data class SettingsLoaded(val settings: Settings) : Event
 
+    /** Persisted per-item projection overrides were read at startup. */
+    data class ProjectionOverridesLoaded(val overrides: Map<String, ProjectionMode>) : Event
+
     /** A partially-watched item was opened — offer resume / start over (ARCHITECTURE.md §10.4). */
     data class ResumePrompt(
         val item: DidlItem,

@@ -77,6 +77,8 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
                 state.copy(playback = state.playback.copy(projection = event.mode)) to noFx()
             is Event.SettingsLoaded ->
                 state.copy(settings = event.settings) to noFx()
+            is Event.ProjectionOverridesLoaded ->
+                state.copy(projectionOverrides = event.overrides + state.projectionOverrides) to noFx()
             is Event.ResumePrompt -> reduceResumePrompt(state, event)
             is Event.Input -> reduceInput(state, event.action)
             is Event.GazeMoved -> reduceGaze(state, event.target)
@@ -787,10 +789,13 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
 
         private fun openProjectionChooserFromPlayer(state: AppState): Pair<AppState, List<Effect>> {
             val current = state.playback.projection
+            val currentKey = state.playback.queue.entries.getOrNull(state.playback.queue.index)?.key?.storageKey()
+                ?: state.playback.itemKey
             return state.copy(
                 overlay = Overlay.ProjectionChooser(
                     current = current,
                     returnTo = ProjectionChooserOrigin.PLAYER,
+                    targetKey = currentKey,
                     focusIndex = Overlay.ProjectionChooser.initialFocusIndex(current),
                 ),
             ) to noFx()
@@ -887,7 +892,24 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             InputAction.ToggleHud -> state.copy(hud = state.hud.copy(pinned = !state.hud.pinned)) to noFx()
             InputAction.CycleProjection -> {
                 val next = nextProjection(state.playback.projection)
-                state.copy(playback = state.playback.copy(projection = next)) to listOf(Effect.SetProjection(next))
+                val currentKey = state.playback.queue.entries.getOrNull(state.playback.queue.index)?.key
+                    ?: state.playback.itemKey?.let { itemKey ->
+                        val parts = itemKey.split("|", limit = 2)
+                        MediaKey(parts.getOrElse(0) { "" }, parts.getOrElse(1) { "" })
+                    }
+                if (currentKey != null) {
+                    val storageKey = currentKey.storageKey()
+                    val overrides = state.projectionOverrides + (storageKey to next)
+                    state.copy(
+                        playback = state.playback.copy(projection = next),
+                        projectionOverrides = overrides,
+                    ) to listOf(
+                        Effect.SetProjection(next),
+                        Effect.PersistProjectionOverride(currentKey, next),
+                    )
+                } else {
+                    state.copy(playback = state.playback.copy(projection = next)) to listOf(Effect.SetProjection(next))
+                }
             }
             is InputAction.Nav -> when (action.dir) {
                 InputAction.Dir.LEFT, InputAction.Dir.RIGHT -> state.copy(
@@ -1094,9 +1116,28 @@ class AppStateMachine(initial: AppState = AppState.INITIAL) {
             val cleared = state.copy(overlay = null)
             return when (overlay.returnTo) {
                 ProjectionChooserOrigin.PLAYER -> {
-                    val applied = mode ?: cleared.playback.projection
-                    cleared.copy(playback = cleared.playback.copy(projection = applied)) to
-                        listOf(Effect.SetProjection(applied))
+                    val currentVideo = state.playback.queue.entries.getOrNull(state.playback.queue.index)?.node
+                    val applied = mode ?: currentVideo?.detectedProjection ?: cleared.playback.projection
+                    val storageKey = overlay.targetKey
+                    if (storageKey != null) {
+                        val overrides = if (mode == null) {
+                            cleared.projectionOverrides - storageKey
+                        } else {
+                            cleared.projectionOverrides + (storageKey to mode)
+                        }
+                        val (sourceId, nodeId) = storageKey.split("|", limit = 2)
+                            .let { it.getOrElse(0) { "" } to it.getOrElse(1) { "" } }
+                        cleared.copy(
+                            playback = cleared.playback.copy(projection = applied),
+                            projectionOverrides = overrides,
+                        ) to listOf(
+                            Effect.SetProjection(applied),
+                            Effect.PersistProjectionOverride(MediaKey(sourceId, nodeId), mode),
+                        )
+                    } else {
+                        cleared.copy(playback = cleared.playback.copy(projection = applied)) to
+                            listOf(Effect.SetProjection(applied))
+                    }
                 }
                 ProjectionChooserOrigin.BROWSE_OVERRIDE -> {
                     val storageKey = overlay.targetKey ?: return cleared to noFx()

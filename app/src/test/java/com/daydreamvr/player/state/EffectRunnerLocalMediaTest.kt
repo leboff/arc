@@ -11,6 +11,8 @@ import com.daydreamvr.playback.ResumeStore
 import com.daydreamvr.playback.VideoPlayer
 import com.daydreamvr.player.data.ServerStore
 import com.daydreamvr.player.data.SettingsStore
+import com.daydreamvr.player.media.MediaKey
+import com.daydreamvr.vrcore.render.ProjectionMode
 import com.daydreamvr.upnp.MediaServerDirectory
 import com.daydreamvr.upnp.cds.ContentDirectoryClient
 import com.daydreamvr.upnp.cds.DecoderCaps
@@ -18,6 +20,7 @@ import com.daydreamvr.upnp.model.BrowseResult
 import com.daydreamvr.upnp.model.MediaServer
 import com.daydreamvr.upnp.model.PageRequest
 import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -27,6 +30,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeout
 import org.junit.Test
+import kotlin.coroutines.ContinuationInterceptor
 import kotlin.time.Duration
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -92,10 +96,26 @@ class EffectRunnerLocalMediaTest {
         )
     }
 
+    @Test
+    fun persistProjectionOverrideInvokesSaveProjectionOverride() = runTest {
+        val saved = CompletableDeferred<Pair<String, ProjectionMode?>>()
+        val runner = runner(
+            dispatched = mutableListOf(),
+            loader = { error("unused") },
+            saveProjectionOverride = { key, mode -> saved.complete(key to mode) },
+        )
+
+        runner.run(Effect.PersistProjectionOverride(MediaKey("local", "10"), ProjectionMode.SBS_FULL))
+
+        assertThat(withTimeout(5_000L) { saved.await() })
+            .isEqualTo("local|10" to ProjectionMode.SBS_FULL)
+    }
+
     private fun TestScope.runner(
         dispatched: MutableList<Event>,
         resumeStore: ResumeStore = InMemoryResumeStore(),
         saveResume: suspend (List<ResumeEntry>) -> Unit = {},
+        saveProjectionOverride: suspend (String, ProjectionMode?) -> Unit = { _, _ -> },
         loader: suspend () -> Event,
     ) = EffectRunner(
         directory = object : MediaServerDirectory {
@@ -129,7 +149,9 @@ class EffectRunnerLocalMediaTest {
         settingsStore = SettingsStore(TestContext()),
         scope = this,
         dispatch = dispatched::add,
+        ioDispatcher = coroutineContext[ContinuationInterceptor] as CoroutineDispatcher,
         saveResume = saveResume,
+        saveProjectionOverride = saveProjectionOverride,
         localMediaLoader = loader,
     )
 

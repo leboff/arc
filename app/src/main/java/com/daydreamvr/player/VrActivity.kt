@@ -253,7 +253,9 @@ class VrActivity : ComponentActivity() {
         lifecycleScope.launch {
             val settings = runCatching { container.settingsStore.current() }.getOrDefault(Settings())
             container.resumeStore.restore(runCatching { container.settingsStore.loadResume() }.getOrDefault(emptyList()))
+            val overrides = runCatching { container.settingsStore.loadProjectionOverrides() }.getOrDefault(emptyMap())
             stateMachine.dispatch(Event.SettingsLoaded(settings))
+            stateMachine.dispatch(Event.ProjectionOverridesLoaded(overrides))
             applySettings(settings)
         }
     }

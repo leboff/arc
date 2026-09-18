@@ -17,6 +17,7 @@ import com.daydreamvr.upnp.cds.DecoderCaps
 import com.daydreamvr.upnp.cds.ResourceRanker
 import com.daydreamvr.upnp.model.MediaServer
 import com.daydreamvr.vrcore.render.ProjectionMode
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -40,7 +41,9 @@ class EffectRunner(
     private val settingsStore: SettingsStore,
     private val scope: CoroutineScope,
     private val dispatch: (Event) -> Unit,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val saveResume: suspend (List<ResumeEntry>) -> Unit = settingsStore::saveResume,
+    private val saveProjectionOverride: suspend (String, ProjectionMode?) -> Unit = settingsStore::saveProjectionOverride,
     private val onRecenter: () -> Unit = {},
     private val onApplySettings: (Settings) -> Unit = {},
     private val onQuit: () -> Unit = {},
@@ -79,7 +82,7 @@ class EffectRunner(
 
     fun flushResume() {
         val entries = resumeStore.all()
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             runCatching { saveResume(entries) }
         }
     }
@@ -105,7 +108,12 @@ class EffectRunner(
             Effect.LoadLocalMedia -> loadLocalMedia()
             is Effect.BrowseNode -> browseNode(effect)
             is Effect.PlayNode -> playNode(effect)
-            is Effect.PersistProjectionOverride -> Unit // override store wiring lands with M8 integration
+            is Effect.PersistProjectionOverride -> {
+                val key = effect.key.storageKey()
+                scope.launch(ioDispatcher) {
+                    runCatching { saveProjectionOverride(key, effect.mode) }
+                }
+            }
             is Effect.PrefetchThumbnails -> Unit // handled by the thumbnail pipeline (M6)
         }
     }

@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.daydreamvr.player.state.Settings
 import com.daydreamvr.playback.ResumeEntry
+import com.daydreamvr.vrcore.render.ProjectionMode
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.Serializable
@@ -31,6 +32,7 @@ class SettingsStore(context: Context) {
     private val settingsKey = stringPreferencesKey("settings.blob")
     private val legacyBackupKey = stringPreferencesKey("settings.blob.legacy.v1")
     private val resumeKey = stringPreferencesKey("resume.positions")
+    private val projectionOverridesKey = stringPreferencesKey("projection.overrides")
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     @Serializable
@@ -120,6 +122,29 @@ class SettingsStore(context: Context) {
     suspend fun saveResume(entries: List<ResumeEntry>) {
         val blob = entries.map { ResumeBlob(it.itemKey, it.positionMs, it.durationMs, it.finishedAtMs) }
         store.edit { it[resumeKey] = json.encodeToString(blob) }
+    }
+
+    suspend fun loadProjectionOverrides(): Map<String, ProjectionMode> =
+        (store.data.first()[projectionOverridesKey]
+            ?.let { raw ->
+                runCatching {
+                    json.decodeFromString<Map<String, String>>(raw)
+                        .mapNotNull { (key, name) ->
+                            runCatching { ProjectionMode.valueOf(name) }.getOrNull()?.let { key to it }
+                        }.toMap()
+                }.getOrNull()
+            }
+            ?: emptyMap())
+
+    suspend fun saveProjectionOverrides(overrides: Map<String, ProjectionMode>) {
+        val blob = overrides.mapValues { it.value.name }
+        store.edit { it[projectionOverridesKey] = json.encodeToString(blob) }
+    }
+
+    suspend fun saveProjectionOverride(key: String, mode: ProjectionMode?) {
+        val current = loadProjectionOverrides().toMutableMap()
+        if (mode == null) current.remove(key) else current[key] = mode
+        saveProjectionOverrides(current)
     }
 
     private suspend fun readAndMigrate(): Settings {

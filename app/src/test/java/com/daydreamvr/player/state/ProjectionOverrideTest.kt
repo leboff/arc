@@ -80,11 +80,12 @@ class ProjectionOverrideTest {
     }
 
     @Test
-    fun playerHudOpensChooserAgainstThePlaybackSliceAndAppliesViaSetProjection() {
+    fun playerHudOpensChooserAndPersistsOverrideForCurrentPlayingItem() {
+        val key = MediaKey("local", "v1")
         val d = Driver(
             AppState(
                 screen = VrScreen.PLAYER,
-                playback = PlaybackSlice(itemKey = "v1", title = "Video v1", projection = ProjectionMode.EQUIRECT_180),
+                playback = PlaybackSlice(itemKey = key.storageKey(), title = "Video v1", projection = ProjectionMode.EQUIRECT_180),
                 hud = HudState(visible = true, focusIndex = HudState.CONTROLS.indexOf("Projection")),
             ),
         )
@@ -92,6 +93,7 @@ class ProjectionOverrideTest {
         d.input(Fx.confirm)
         val opened = d.state.overlay as Overlay.ProjectionChooser
         assertThat(opened.returnTo).isEqualTo(ProjectionChooserOrigin.PLAYER)
+        assertThat(opened.targetKey).isEqualTo(key.storageKey())
         assertThat(opened.current).isEqualTo(ProjectionMode.EQUIRECT_180)
         assertThat(Overlay.ProjectionChooser.OPTIONS[opened.focusIndex]).isEqualTo(ProjectionMode.EQUIRECT_180)
 
@@ -103,5 +105,34 @@ class ProjectionOverrideTest {
         assertThat(d.state.playback.projection).isEqualTo(focusedMode)
         val fx = d.stepEffects.filterIsInstance<Effect.SetProjection>().single()
         assertThat(fx.mode).isEqualTo(focusedMode)
+        assertThat(d.state.projectionOverrides[key.storageKey()]).isEqualTo(focusedMode)
+        assertThat(d.stepEffects).contains(Effect.PersistProjectionOverride(key, focusedMode))
+    }
+
+    @Test
+    fun projectionOverridesLoadedEventPopulatesState() {
+        val overrides = mapOf("local|100" to ProjectionMode.EQUIRECT_360)
+
+        val d = Driver().send(Event.ProjectionOverridesLoaded(overrides))
+
+        assertThat(d.state.projectionOverrides).isEqualTo(overrides)
+    }
+
+    @Test
+    fun cycleProjectionInPlayerPersistsOverride() {
+        val key = MediaKey("local", "100")
+        val d = Driver(
+            AppState(
+                screen = VrScreen.PLAYER,
+                playback = PlaybackSlice(itemKey = key.storageKey(), projection = ProjectionMode.FLAT),
+            ),
+        )
+
+        d.input(InputAction.CycleProjection)
+
+        val next = ProjectionMode.entries[1]
+        assertThat(d.state.playback.projection).isEqualTo(next)
+        assertThat(d.state.projectionOverrides[key.storageKey()]).isEqualTo(next)
+        assertThat(d.stepEffects).contains(Effect.PersistProjectionOverride(key, next))
     }
 }
